@@ -71,5 +71,18 @@ namespace BoomBoxCartMod
                 }
             }
         }
+
+        private void OnDestroy()
+        {
+            // Alle erzeugten Balken zerstören
+            if (bars != null)
+            {
+                foreach (var bar in bars)
+                {
+                    if (bar != null)
+                        Destroy(bar.gameObject);
+                }
+            }
+        }
     }
 }

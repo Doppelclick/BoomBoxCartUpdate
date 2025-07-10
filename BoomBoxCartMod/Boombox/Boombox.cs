@@ -412,6 +412,13 @@ namespace BoomBoxCartMod
 				currentSongTitle = title;
 				UpdateUIStatus($"Now playing: {title}");
 			}
+
+			// History aktualisieren
+			BoomboxUI ui = GetComponent<BoomboxUI>();
+			if (ui != null)
+			{
+				ui.AddToHistory(title, url);
+			}
 		}
 
 		[PunRPC]

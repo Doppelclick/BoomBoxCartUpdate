@@ -1,6 +1,6 @@
 {
     "name": "BoomboxCart",
-    "version_number": "1.2.1",
+    "version_number": "1.2.2",
     "website_url": "https://github.com/ColtG5/BoomboxCart",
     "description": "Carts now double as a boombox! Grab a cart, press Y, and play video links for everyone to hear! Supports YouTube, SoundCloud, Bilibili, Rutube, and more (check README)! Configurable volume and quality sliders from the in-game boombox GUI.",
     "dependencies": ["BepInEx-BepInExPack-5.4.2100"]

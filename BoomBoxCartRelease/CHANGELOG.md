@@ -1,4 +1,8 @@
 # Changelog
+## 1.2.2
+ - Fixed a bug where the Cart despawned when unchecked Checkbox for the Audio Visualizer
+ - Fixed a bug where the Visualizer Blocks didn't despawn when unchecked Checkbox for the Audio Visualizer
+ - Added a "Recently played" History (UI)
 ## 1.2.1
  - Added an Audio Visualizer (+ UI Checkbox)
 ## 1.2.0

@@ -5,6 +5,7 @@ using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.XR;
 using BepInEx.Logging;
 using System;
+using System.Collections.Generic;
 
 namespace BoomBoxCartMod
 {
@@ -64,6 +65,19 @@ namespace BoomBoxCartMod
 		private bool waitingForKey = false;
 
 		private bool lightsOn = false;
+
+		private class AudioEntry
+		{
+			public string Title;
+			public string Url;
+			public AudioEntry(string title, string url)
+			{
+				Title = title;
+				Url = url;
+			}
+		}
+		private List<AudioEntry> audioHistory = new List<AudioEntry>();
+		private int maxHistory = 10;
 
 		private void Awake()
 		{
@@ -490,21 +504,24 @@ namespace BoomBoxCartMod
 
 			// Visualizer Toggle
 			GUILayout.Space(10);
-			bool visualizerActive = visualizer != null && visualizer.enabled;
+			bool visualizerActive = visualizer != null;
 			bool newVisualizerActive = GUILayout.Toggle(visualizerActive, "Audio Visualizer enabled");
-			if (newVisualizerActive != visualizerActive && visualizer != null)
+			if (newVisualizerActive != visualizerActive)
 			{
-				visualizer.enabled = newVisualizerActive;
-				foreach (Transform bar in visualizer.GetComponentsInChildren<Transform>())
-				{
-					if (bar != visualizer.transform)
-						bar.gameObject.SetActive(newVisualizerActive);
-						// Logger.LogInfo($"Visualizer Active: {visualizerActive}");
-				}
+    			if (newVisualizerActive)
+    			{
+        			visualizer = gameObject.AddComponent<Visualizer>();
+        			visualizer.audioSource = boombox.audioSource;
+					// Logger.LogInfo($"Visualizer Active: {visualizerActive}");
+    			}
+    			else
+    			{
+        			Destroy(visualizer);
+        			visualizer = null;
+    			}
 			}
 
 			// Status Message Display
-
 			GUILayout.Space(15);
 			if (!string.IsNullOrEmpty(statusMessage))
 			{
@@ -575,7 +592,6 @@ namespace BoomBoxCartMod
 			GUILayout.EndHorizontal();
 
 			// Download Status Information
-
 			if (boombox != null && boombox.IsDownloadInProgress())
 			{
 				GUILayout.Space(10);
@@ -589,6 +605,23 @@ namespace BoomBoxCartMod
 				}
 				GUILayout.FlexibleSpace();
 				GUILayout.EndHorizontal();
+			}
+
+			// Recently played
+			GUILayout.Space(10);
+			GUILayout.Label("Recently played:", labelStyle);
+
+			foreach (var entry in audioHistory)
+			{
+				if (GUILayout.Button(entry.Title, textFieldStyle, GUILayout.Height(32)))
+				{
+					urlInput = entry.Url;
+					if (IsValidVideoUrl(urlInput))
+					{
+						photonView.RPC("RequestSong", RpcTarget.All, urlInput, PhotonNetwork.LocalPlayer.ActorNumber);
+						GUI.FocusControl(null);
+					}
+				}
 			}
 
 			GUILayout.EndScrollView();
@@ -629,6 +662,14 @@ namespace BoomBoxCartMod
 			if (buttonTexture != null) Destroy(buttonTexture);
 			if (sliderBackgroundTexture != null) Destroy(sliderBackgroundTexture);
 			if (sliderThumbTexture != null) Destroy(sliderThumbTexture);
+		}
+
+		public void AddToHistory(string title, string url)
+		{
+			audioHistory.RemoveAll(entry => entry.Url == url);
+			audioHistory.Insert(0, new AudioEntry(title, url));
+			if (audioHistory.Count > maxHistory)
+				audioHistory.RemoveAt(audioHistory.Count - 1);
 		}
 	}
 }
