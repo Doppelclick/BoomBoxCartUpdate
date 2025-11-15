@@ -201,17 +201,17 @@ namespace BoomBoxCartMod
         {
             if (boombox != null)
             {
-                if (boombox.IsProcessingQueue() && boombox.GetCurrentSong() != null && boombox.GetCurrentSong().GetAudioClip() == null)
+                if (boombox.IsProcessingQueue() && boombox.currentSong != null && boombox.currentSong.GetAudioClip() == null)
                 {
                     statusMessage = $"Downloading audio from {boombox.GetCurrentDownloadUrl()}...";
                 }
-                else if (boombox.isPlaying && boombox.GetCurrentSong() != null)
+                else if (boombox.isPlaying && boombox.currentSong != null)
                 {
-                    statusMessage = $"Now playing: {boombox.GetCurrentSong().Title}";
+                    statusMessage = $"Now playing: {boombox.currentSong.Title}";
                 }
-                else if (!string.IsNullOrEmpty(boombox.GetCurrentSong()?.Url))
+                else if (!string.IsNullOrEmpty(boombox.currentSong?.Url))
                 {
-                    statusMessage = $"Ready to play: {boombox.GetCurrentSong().Title}";
+                    statusMessage = $"Ready to play: {boombox.currentSong.Title}";
                 }
                 else
                 {
@@ -227,7 +227,7 @@ namespace BoomBoxCartMod
             {
                 lastSentSongTimePerc = songTimePerc;
 
-                if (boombox?.currentSongIndex == songIndexForTime && // Make sure the song has not changed in the meantime
+                if (boombox?.GetCurrentSongIndex() == songIndexForTime && songIndexForTime != -1 && // Make sure the song has not changed in the meantime
                     boombox?.audioSource?.clip != null && boombox.audioSource.clip.length > 0)
                 {
                     float actualTime = songTimePerc * boombox.audioSource.clip.length;
@@ -237,7 +237,7 @@ namespace BoomBoxCartMod
                     boombox.audioSource.time = actualTime;
 
                     // update volume for all others too
-                    photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.currentSongIndex, (long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(actualTime * 1000f)), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex(), (long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(actualTime * 1000f)), PhotonNetwork.LocalPlayer.ActorNumber);
                 }
             }
         }
@@ -424,8 +424,8 @@ namespace BoomBoxCartMod
                     DrawMainPanel(boombox);
                     GUILayout.EndVertical();
 
-                    // --- RIGHT COLUMN: QUEUE DISPLAY (W 380) ---
-                    GUILayout.BeginVertical(GUILayout.Width(380), GUILayout.ExpandHeight(true));
+                    // --- RIGHT COLUMN: QUEUE DISPLAY (W 420) ---
+                    GUILayout.BeginVertical(GUILayout.Width(420), GUILayout.ExpandHeight(true));
                     DrawQueue(boombox);
                     GUILayout.EndVertical(); // End Right Column Vertical
 
@@ -527,7 +527,7 @@ namespace BoomBoxCartMod
                 float newTimePercentage = GUILayout.HorizontalSlider(timeDisplayPercentage, 0f, 1f, sliderStyle, GUI.skin.horizontalSliderThumb);
 
 
-                if (audioAvailable)
+                if (audioAvailable && boombox.GetCurrentSongIndex() != -1)
                 {
                     // if volume changed and we weren't already dragging, start tracking drag
                     if (newTimePercentage != timeDisplayPercentage)
@@ -538,10 +538,10 @@ namespace BoomBoxCartMod
                         }
                         if (songIndexForTime == -2)
                         {
-                            songIndexForTime = boombox.currentSongIndex;
+                            songIndexForTime = boombox.GetCurrentSongIndex();
                         }
 
-                        if (songIndexForTime == boombox.currentSongIndex)
+                        if (songIndexForTime == boombox.GetCurrentSongIndex())
                         {
                             // update time for immediate feedback while sliding
                             float actualTime = newTimePercentage * songLength;
@@ -564,7 +564,7 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.currentSongIndex, (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) - 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex(), (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) - 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
                     }
                 }
 
@@ -615,7 +615,7 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.currentSongIndex, (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex, (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
                     }
                 }
 
@@ -623,7 +623,7 @@ namespace BoomBoxCartMod
 
 
                 // Download status information for current song
-                if (boombox != null && boombox.IsProcessingQueue() && boombox.GetCurrentSong()?.GetAudioClip() == null && boombox.GetCurrentDownloadUrl != null)
+                if (boombox != null && boombox.IsProcessingQueue() && boombox.currentSong?.GetAudioClip() == null && boombox.GetCurrentDownloadUrl != null)
                 {
                     GUILayout.Space(10);
                     GUILayout.Label("Download in progress...", statusStyle);
@@ -807,9 +807,9 @@ namespace BoomBoxCartMod
             queueScrollPosition = GUILayout.BeginScrollView(queueScrollPosition, false, true, GUILayout.ExpandHeight(true));
 
                 List<Boombox.AudioEntry> fullQueue = boombox.playbackQueue;
-                int currentIndex = boombox.currentSongIndex;
+                int currentIndex = boombox.GetCurrentSongIndex();
 
-                if (fullQueue.Count == 0 && currentIndex == -1)
+                if (fullQueue.Count == 0) // && currentIndex == -1   Not necessary, may cause errors
                 {
                     GUILayout.Label("Queue is empty and no song is playing.", labelStyle);
                 }
@@ -821,8 +821,8 @@ namespace BoomBoxCartMod
 
                     GUIStyle styleToUse = isCurrent ? currentSongStyle : queueEntryStyle;
 
-                    string prefix = isCurrent ? "\u25B6 " : $"{i - currentIndex}. "; // Unicode triangle for current song, index for others
-                    string displayText = prefix + entry.Title;
+                    string prefix = isCurrent ? "\u25B6 " : $"{i - (currentIndex == -1 ? 0 : currentIndex)}. "; // Unicode triangle for current song, index for others
+                    string displayText = ClipText(prefix + entry.Title, 280, styleToUse);
 
                     // Start Horizontal Block for Queue Item + Controls
                     GUILayout.BeginHorizontal(styleToUse, GUILayout.Height(32));
@@ -881,6 +881,19 @@ namespace BoomBoxCartMod
             GUILayout.EndScrollView();
         }
 
+        private string ClipText(string text, float maxWidth, GUIStyle style)
+        {
+            Vector2 size = style.CalcSize(new GUIContent(text));
+            string result = text;
+            int maxChars = text.Length; 
+            while (size.x > maxWidth)
+            {
+                result = result.Substring(0, result.Length -4) + "...";
+                size = style.CalcSize(new GUIContent(result));
+            }
+            return result;
+        }
+
         private string PrintTime(float time)
         {
             return $"{(int)Math.Floor(time / 60)}:{(int)(time % 60)}";
@@ -904,6 +917,7 @@ namespace BoomBoxCartMod
             if (buttonTexture != null) Destroy(buttonTexture);
             if (sliderBackgroundTexture != null) Destroy(sliderBackgroundTexture);
             if (sliderThumbTexture != null) Destroy(sliderThumbTexture);
+            if (textFieldBackgroundTexture != null) Destroy(textFieldBackgroundTexture);
         }
 
         // REMOVED AddToHistory - Moved to the Boombox class queue management.
