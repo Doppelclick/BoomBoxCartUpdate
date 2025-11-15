@@ -635,7 +635,7 @@ namespace BoomBoxCartMod
 			if (requesterId != PhotonNetwork.MasterClient.ActorNumber) // Should not be necessary, but why not
 				return;
 
-            Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queue={queue}");
+            //Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queue={queue}");
 
 			currentSongIndex = currentIndex;
 			playbackQueue = queue;
@@ -732,7 +732,7 @@ namespace BoomBoxCartMod
 				{
 					if (playbackQueue.Count > 0)
 					{
-						currentSongIndex = index % playbackQueue.Count;
+						currentSongIndex %= playbackQueue.Count; // currentSongIndex == index
 						if (currentSongIndex > 0 || loopQueue)
 						{
 							photonView.RPC("SyncPlayback", RpcTarget.All, currentSongIndex, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
@@ -740,7 +740,7 @@ namespace BoomBoxCartMod
 						}
 					}
 
-					currentSongIndex = -1;
+                    photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
                 }
             }
         } // No check for downloadJobQueue necessary, since we already check if a song exists in our playbackqueue before downloading
@@ -748,7 +748,7 @@ namespace BoomBoxCartMod
         [PunRPC]
 		public async void SyncPlayback(int newSongIndex, long startTime, int requesterId) // Syncs the currently playing song, but presumes no changes to the queue were made
 		{
-			Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}´-- currentSongIndex={currentSongIndex} currentTime={GetCurrentTimeMilliseconds()}");
+			//Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}´-- currentSongIndex={currentSongIndex} currentTime={GetCurrentTimeMilliseconds()}");
 
 			if (newSongIndex == -1)
 			{
@@ -779,7 +779,7 @@ namespace BoomBoxCartMod
 
 			if (newSong?.Url != null && oldSong?.Url != newSong.Url) // The download process will play the song once it is finished
 			{
-				// TODO: check logic to where the song should be added
+				// TODO: add proper logic to where the song should be added
 				downloadJobQueue.Clear();
 				DownloadQueue(currentSongIndex);
 			}

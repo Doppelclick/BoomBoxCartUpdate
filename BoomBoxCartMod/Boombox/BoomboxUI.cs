@@ -580,7 +580,7 @@ namespace BoomBoxCartMod
                     else if (lastUrl != urlInput)
                     {
                         lastUrl = urlInput;
-                        // Use RequestSong to either start playing or enqueue, depending on Boombox logic
+                        // Use RequestSong to add a song to the queue, and initiate its download. It will start playing if the queue was empty before
                         photonView?.RPC("RequestSong", RpcTarget.All, urlInput, PhotonNetwork.LocalPlayer.ActorNumber);
                         GUI.FocusControl(null);
                     }
@@ -837,7 +837,7 @@ namespace BoomBoxCartMod
                         if (!isCurrent)
                         {
                             // 2. Move Up Button (Only if not the first in the upcoming queue)
-                            if (i > currentIndex + 1) // Ensures you can't move the 2nd song into the 1st position if 1st is currently playing
+                            if (i > 0) // Ensures you can't move the 2nd song into the 1st position if 1st is currently playing
                             {
                                 if (GUILayout.Button("▲", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
@@ -852,7 +852,7 @@ namespace BoomBoxCartMod
                             }
 
                             // 3. Move Down Button (Only if not the last item)
-                            if (i < fullQueue.Count - 1)
+                            if (i + 1 < fullQueue.Count)
                             {
                                 if (GUILayout.Button("▼", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {

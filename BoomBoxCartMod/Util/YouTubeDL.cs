@@ -344,9 +344,6 @@ namespace BoomBoxCartMod.Util
 
 		public static bool CleanUp()
 		{
-			return false; // TODO: Fix probably causing crash
-
-
             if (Directory.Exists(Path.GetDirectoryName(tempFolder)))
             {
                 Directory.Delete(Path.GetDirectoryName(tempFolder), true);
