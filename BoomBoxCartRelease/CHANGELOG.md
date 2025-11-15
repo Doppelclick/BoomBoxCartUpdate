@@ -1,4 +1,8 @@
 # Changelog
+## 1.2.3
+ - Added Playback Queue instead of History
+ - Add time slider, play/pause
+ - Add setting: "Apply Quality Setting to Downloads"
 ## 1.2.2
  - Fixed a bug where the Cart despawned when unchecked Checkbox for the Audio Visualizer
  - Fixed a bug where the Visualizer Blocks didn't despawn when unchecked Checkbox for the Audio Visualizer

@@ -346,7 +346,7 @@ namespace BoomBoxCartMod.Util
 		{
             if (Directory.Exists(Path.GetDirectoryName(tempFolder)))
             {
-                Directory.Delete(Path.GetDirectoryName(tempFolder), true);
+                Directory.Delete(tempFolder, true);
             }
 
 			return false;
