@@ -1,4 +1,4 @@
-# BoomboxCart 
+# BoomboxCartUpgrade 
 
 Adds a "Boombox" component into the cart with its own UI that plays video links as audio from the cart. 
 Has volume and quality sliders as well to configure the music to your liking. One player can control the 
@@ -26,6 +26,7 @@ Reach out to me (link at the end) for issues with any service listed here, or su
 </ol>
 <p>Known Issues:</p>
 <ul>
+    <li>When the menu is opened the camera still moves</li>
     <li>Singleplayer does NOT work at all. Clicking "Host Game" and playing solo works though!</li>
     <li>Small stutter when audio is downloaded (longer video, longer stutter)</li>
 </ul>
@@ -43,6 +44,10 @@ Big thanks to all the members in the <a href="https://discord.gg/EYAnUPV7kX">R.E
 
 Also big thanks to <a href="https://thunderstore.io/c/repo/p/SteamBlizzard/">Dan</a> for the incredible cover art. Go download his mods too!</p>
 
-### Contact
 
-<p>Feel free to reach out to me on discord in <a href="https://discord.com/channels/1344557689979670578/1348739189109166120">this thread</a> in the <a href="https://discord.gg/EYAnUPV7kX">R.E.P.O Modding Server</a> for any bugs/comments/recommendations!</p>
+
+### This mod is based on PhilTec-Philip's BoomboxCartUpdate fork of the original BoomBoxCartMod by ColtG5
+
+## Contact
+
+<p>Feel free to reach out to me on discord @doppelclick</p>

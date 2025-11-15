@@ -2,6 +2,6 @@
     "name": "BoomboxCart",
     "version_number": "1.2.3",
     "website_url": "https://github.com/Doppelclick/BoomBoxCartUpdate",
-    "description": "Carts now double as a boombox! Grab a cart, press Y, and play video links for everyone to hear! Supports YouTube, SoundCloud, Bilibili, Rutube, and more (check README)! Configurable volume and quality sliders from the in-game boombox GUI. Based on PhilTec-Philip's fork of the original mod by ColtG5.",
+    "description": "Carts now double as a boombox! Grab a cart, press Y, and play video links for everyone to hear! Supports YouTube, SoundCloud, Bilibili, Rutube, and more (check README)!",
     "dependencies": ["BepInEx-BepInExPack-5.4.2100"]
 }
