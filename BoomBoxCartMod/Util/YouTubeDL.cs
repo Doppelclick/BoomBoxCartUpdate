@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Linq;
 using BepInEx.Logging;
 using System.Text;
+using System.Security.Policy;
 
 namespace BoomBoxCartMod.Util
 {
@@ -16,8 +17,9 @@ namespace BoomBoxCartMod.Util
 		private static ManualLogSource Logger => Instance.logger;
 
 		private static readonly string baseFolder = Path.Combine(Directory.GetCurrentDirectory(), "BoomboxedCart");
-		//private const string YtDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp.exe";
-		private const string YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+        private static readonly string tempFolder = Path.Combine(baseFolder, "temp");
+        //private const string YtDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp.exe";
+        private const string YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 		private const string FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
 		private static readonly string ytDlpPath = Path.Combine(baseFolder, "yt-dlp.exe");
 		private static readonly string ffmpegFolder = Path.Combine(baseFolder, "ffmpeg");
@@ -30,7 +32,12 @@ namespace BoomBoxCartMod.Util
 				Directory.CreateDirectory(baseFolder);
 			}
 
-			if (!File.Exists(ytDlpPath))
+            if (!Directory.Exists(tempFolder))
+            {
+                Directory.CreateDirectory(tempFolder);
+            }
+
+            if (!File.Exists(ytDlpPath))
 			{
 				Logger.LogInfo("yt-dlp not found. Downloading...");
 				await DownloadFileAsync(YTDLP_URL, ytDlpPath);
@@ -126,31 +133,67 @@ namespace BoomBoxCartMod.Util
 			}
 		}
 
-		public static async Task<(string filePath, string title)> DownloadAudioWithTitleAsync(string videoUrl)
+		public static async Task<string> DownloadAudioTitleAsync(string videoUrl)
 		{
-			await InitializeAsync();
+            await InitializeAsync();
 
-			string tempFolder = Path.Combine(baseFolder, Guid.NewGuid().ToString());
-			Directory.CreateDirectory(tempFolder);
-
-			Logger.LogInfo($"Getting title and downloading audio for {videoUrl}...");
-
-			return await Task.Run(async () =>
+            return await Task.Run(async () =>
 			{
 				try
 				{
-					string title = await GetVideoTitleInternalAsync(videoUrl);
-					if (string.IsNullOrEmpty(title))
+					string title = Boombox.GetSongTitle(videoUrl);
+					if (title == null)
 					{
-						title = "Unknown Title";
+						title = await GetVideoTitleInternalAsync(videoUrl);
+						if (string.IsNullOrEmpty(title))
+						{
+							title = "Unknown Title";
+						}
 					}
 
 					//Logger.LogInfo($"Got video title downloaded: {title}");
 					// remove \n and \r from title
 					title = title.Replace("\n", "").Replace("\r", "");
 
+					return title;
+				}
+				catch (Exception ex)
+				{
+					Logger.LogError($"Download Error: {ex}");
+					Logger.LogError($"Stack Trace: {ex.StackTrace}");
+
+					throw ex;
+				}
+			});
+		}
+
+
+		/** @Return File Path to Audio Clip **/
+		public static async Task<string> DownloadAudioAsync(string videoUrl, string videoTitle)
+		{
+			//await InitializeAsync(); Presume DownloadAudioTitleAsync was run before
+
+			string folder = Path.Combine(tempFolder, Guid.NewGuid().ToString());
+			Directory.CreateDirectory(folder);
+
+			Logger.LogInfo($"Downloading audio for {videoUrl}...");
+
+			return await Task.Run(async () =>
+            {
+				try
+				{
+					string quality = !Boombox.ApplyQualityToDownloads ? "192K" :
+						Boombox.qualityLevel switch
+							{
+								0 => "32K",
+								1 => "64K",
+								2 => "96K",
+								3 => "128K",
+								_ => "192K",
+							};
+
 					string noIckySpecialCharsFileName = $"audio_{DateTime.Now.Ticks}.%(ext)s";
-					string command = $"-x --audio-format mp3 --audio-quality 192K --ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(tempFolder, noIckySpecialCharsFileName)}\" {videoUrl}";
+					string command = $"-x --audio-format mp3 --audio-quality {quality} --ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(folder, noIckySpecialCharsFileName)}\" {videoUrl}";
 
 
 					ProcessStartInfo processInfo = new()
@@ -194,10 +237,10 @@ namespace BoomBoxCartMod.Util
 
 					await Task.Delay(1000);
 
-					string audioFilePath = Directory.GetFiles(tempFolder, "*.mp3").FirstOrDefault();
+					string audioFilePath = Directory.GetFiles(folder, "*.mp3").FirstOrDefault();
 					if (audioFilePath == null)
 					{
-						string[] allFiles = Directory.GetFiles(tempFolder);
+						string[] allFiles = Directory.GetFiles(folder);
 						Logger.LogError($"No MP3 files found. Total files: {allFiles.Length}");
 						foreach (string file in allFiles)
 						{
@@ -207,18 +250,18 @@ namespace BoomBoxCartMod.Util
 					}
 
 					//Logger.LogInfo($"Successfully downloaded audio to: {audioFilePath}");
-					return (audioFilePath, title);
+					return audioFilePath;
 				}
 				catch (Exception ex)
 				{
 					Logger.LogError($"Download Error: {ex}");
 					Logger.LogError($"Stack Trace: {ex.StackTrace}");
 
-					if (Directory.Exists(tempFolder))
+					if (Directory.Exists(folder))
 					{
 						try
 						{
-							Directory.Delete(tempFolder, true);
+							Directory.Delete(folder, true);
 						}
 						catch (Exception cleanupEx)
 						{
@@ -298,5 +341,18 @@ namespace BoomBoxCartMod.Util
 				return "Unknown Title";
 			}
 		}
+
+		public static bool CleanUp()
+		{
+			return false; // TODO: Fix probably causing crash
+
+
+            if (Directory.Exists(Path.GetDirectoryName(tempFolder)))
+            {
+                Directory.Delete(Path.GetDirectoryName(tempFolder), true);
+            }
+
+			return false;
+        }
 	}
 }

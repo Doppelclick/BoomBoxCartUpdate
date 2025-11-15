@@ -10,6 +10,8 @@ using BepInEx.Logging;
 using System.Text.RegularExpressions;
 using System.Collections;
 using System.Linq;
+using System.Security.Policy;
+using Photon.Realtime;
 
 namespace BoomBoxCartMod
 {
@@ -26,18 +28,20 @@ namespace BoomBoxCartMod
 		float maxDistanceBase = 10f;
 		float maxDistanceAddition = 20f;
 
-		private static bool isDownloadInProgress = false;
-		private static string currentDownloadUrl = "";
-		private static string currentRequestId = "";
+        private Queue<string> downloadJobQueue = new Queue<string>();
+        private bool isProcessingQueue = false;
+        private static string currentRequestId = null;
+        private static string currentDownloadUrl = null;
+        private Coroutine processingCoroutine; // Should only be used by master client
 
-		public string currentSongUrl = "";
-		public string currentSongTitle = "No song playing";
-		private bool isAwaitingSyncPlayback = false;
+        public int currentSongIndex = -1;
+        public List<AudioEntry> playbackQueue = new List<AudioEntry>();
+        private bool isAwaitingSyncPlayback = false;
 		public bool isPlaying = false;
 		private bool isTimeoutRecovery = false;
 
 		private AudioLowPassFilter lowPassFilter;
-		public int qualityLevel = 3; // 0 lowest, 3 highest
+		public static int qualityLevel = 4; // 0 lowest, 4 highest
 
 		// caches the AudioClips in memory using the URL as the key.
 		private static Dictionary<string, AudioClip> downloadedClips = new Dictionary<string, AudioClip>();
@@ -55,7 +59,7 @@ namespace BoomBoxCartMod
 		// all valid URL's to donwload audio from
 		private static readonly Regex[] supportedVideoUrlRegexes = new[]
 		{
-		// YouTube URLs
+		// YouTube TODO:/Youtube Music URLs
 		new Regex(@"^((?:https?:)?\/\/)?((?:www|m)\.)?((?:youtube(?:-nocookie)?\.com|youtu\.be))(\/(?:[\w\-]+\?v=|embed\/|live\/|v\/)?)([\w\-]+)(\S+)?$", RegexOptions.Compiled | RegexOptions.IgnoreCase),
     
 		// RuTube URLs
@@ -119,7 +123,7 @@ namespace BoomBoxCartMod
 			if (GetComponent<Visualizer>() == null)
 			{
 				var vis = gameObject.AddComponent<Visualizer>();
-				vis.audioSource = audioSource; // Setze die AudioSource explizit
+				vis.audioSource = audioSource; // Explicitly set the audiosource
 			}
 
 			Logger.LogInfo($"Boombox initialized on this cart. AudioSource: {audioSource}, PhotonView: {photonView}");
@@ -130,8 +134,7 @@ namespace BoomBoxCartMod
 			// try to prevent double playing for the player(s) who downloaded song, but waiting for slowest to sync w
 			if (isAwaitingSyncPlayback && audioSource.isPlaying)
 			{
-				audioSource.Stop();
-				isPlaying = false;
+				CleanupCurrentPlayback();
 				//Logger.LogInfo("Stopped premature audio playback while waiting for sync");
 			}
 
@@ -149,31 +152,119 @@ namespace BoomBoxCartMod
 				monsterAttractTimer = 0f;
 			}
 
-			if (isPlaying && !audioSource.isPlaying && LoopSong && audioSource.clip != null)
-			{
-				audioSource.time = 0f;
-				audioSource.Play();
-			}
+			if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Handle next song
+            {
+                if (currentSongIndex + 1 >= playbackQueue.Count)
+				{
+					if (!loopQueue)
+					{
+                        photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    }
+                    else
+					{
+                        photonView.RPC("SyncPlayback", RpcTarget.All, 0, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    }
+                    return;
+				}
+				else
+				{
+                    photonView.RPC("SyncPlayback", RpcTarget.All, currentSongIndex + 1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                }
+            }
 		}
 
-			private void OnDestroy()
+		private void OnDestroy()
+		{
+			foreach (var coroutine in timeoutCoroutines.Values)
 			{
-				foreach (var coroutine in timeoutCoroutines.Values)
+				if (coroutine != null)
 				{
-					if (coroutine != null)
-					{
-						StopCoroutine(coroutine);
-					}
+					StopCoroutine(coroutine);
 				}
-				timeoutCoroutines.Clear();
 			}
+			timeoutCoroutines.Clear();
+		}
+
+		public static long GetCurrentTimeMilliseconds()
+		{
+			return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+        }
 
 		private float monsterAttractTimer = 0f;
 		private float monsterAttractInterval = 1.0f; // every second
 
-		public bool IsDownloadInProgress()
+		public static string GetSongTitle(string url)
 		{
-			return isDownloadInProgress;
+			if (songTitles.ContainsKey(url))
+			{
+				return songTitles[url];
+			}
+			return null;
+		}
+
+		public AudioEntry GetCurrentSong()
+		{
+			if (currentSongIndex == -1 || currentSongIndex >= playbackQueue.Count)
+			{
+				return null;
+			}
+			return playbackQueue[currentSongIndex];
+		}
+
+        private void CleanupCurrentPlayback()
+        {
+            if (audioSource.isPlaying)
+            {
+                audioSource.Stop();
+                isPlaying = false;
+            }
+
+            audioSource.clip = null;
+        }
+
+        public void StartPlayBack()
+		{
+            AudioEntry currentSong = GetCurrentSong();
+            AudioClip clip = currentSong?.GetAudioClip();
+			
+			if (currentSong == null || clip == null)
+			{
+                Logger.LogError("Clip not found for current song");
+                CleanupCurrentPlayback();
+                return;
+			}
+
+            if (audioSource.clip != null && audioSource.clip == clip)
+            {
+				audioSource.Play();
+				isPlaying = true;
+				return;
+            }
+
+			audioSource.Stop(); // Probably unnescessary
+            audioSource.clip = clip;
+			audioSource.loop = false; // Handled in Update() since we are using a queue
+            SetQuality(qualityLevel);
+            UpdateAudioRangeBasedOnVolume(audioSource.volume);
+            audioSource.Play();
+            isPlaying = true;
+        }
+
+		public void PausePlayBack()
+		{
+			audioSource.Pause();
+			isPlaying = false;
+		}
+
+        //(long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(timeInSeconds * 1000f)) // Need to round
+        public void SetPlaybackTime(long startTimeMillis)
+		{
+            audioSource.time = Math.Max(0f, (GetCurrentTimeMilliseconds() - startTimeMillis)) / 1000f;
+        }
+
+		public bool IsProcessingQueue()
+		{
+			return isProcessingQueue;
 		}
 
 		public string GetCurrentDownloadUrl()
@@ -186,151 +277,73 @@ namespace BoomBoxCartMod
 			return !string.IsNullOrWhiteSpace(url) && supportedVideoUrlRegexes.Any(regex => regex.IsMatch(url));
 		}
 
-		[PunRPC]
-		public async void RequestSong(string url, int requesterId)
+		private void DownloadQueue(int startIndex)
 		{
-			//Logger.LogInfo($"RequestSong RPC received: url={url}, requesterId={requesterId}");
+            for (int i = startIndex; i < playbackQueue.Count; i++) // Songs in the queue after the current song
+            {
+                downloadJobQueue.Enqueue(playbackQueue.ElementAt(i).Url);
+            }
+            for (int i = 0; i < startIndex; i++) // Songs in the queue from 0 to the current song
+            {
+                downloadJobQueue.Enqueue(playbackQueue.ElementAt(i).Url);
+            }
 
-			if (!IsValidVideoUrl(url))
+            if (!isProcessingQueue)
+            {
+                processingCoroutine = StartCoroutine(ProcessDownloadQueue());
+            }
+        }
+
+		[PunRPC]
+		public async void RequestSong(string url, int requesterId) // TODO: Sometimes starts playback when it shouldn't
+		{
+            //Logger.LogInfo($"RequestSong RPC received: url={url}, requesterId={requesterId}");
+
+            /* TODO: Add an option to allow / prohibit duplicates in the queue
+			if (!playbackQueue.Any(entry => entry.Url == url))
+			{ }
+			*/
+
+            bool ownRequest = requesterId == PhotonNetwork.LocalPlayer.ActorNumber;
+
+            if (!IsValidVideoUrl(url))
 			{
 				Logger.LogError($"Invalid Video URL: {url}");
-				if (requesterId == PhotonNetwork.LocalPlayer.ActorNumber)
+				if (ownRequest)
 				{
 					UpdateUIStatus("Error: Invalid Video URL.");
 				}
 				return;
 			}
 
-			// requests get unique ID's 
-			string requestId = Guid.NewGuid().ToString();
-
-			// only process if we're not already downloading smthn (i tihnk greyed out play button stops this)
-			if (isDownloadInProgress && requesterId != PhotonNetwork.MasterClient.ActorNumber)
+			bool isCurrentSong = true;
+			if (currentSongIndex == -1 || currentSongIndex >= playbackQueue.Count) 
 			{
-				//Logger.LogWarning($"Download already in progress. Ignoring request from {requesterId}");
-				if (requesterId == PhotonNetwork.LocalPlayer.ActorNumber)
-				{
-					UpdateUIStatus("Please wait for the current download to complete.");
-				}
+				currentSongIndex = 0;
+			}
+			else
+			{
+				isCurrentSong = false;
+			}
+
+            AudioEntry song = new AudioEntry(songTitles.ContainsKey(url) ? songTitles[url] : "Unknown Title", url);
+            playbackQueue.Add(song);
+
+
+			if (!PhotonNetwork.IsMasterClient)
 				return;
-			}
 
-			isDownloadInProgress = true;
-			isAwaitingSyncPlayback = true;
-			currentDownloadUrl = url;
-			currentRequestId = requestId;
+			downloadJobQueue.Enqueue(url);
 
-			// try to fix double playing
-			CleanupCurrentPlayback();
-
-			timeoutCoroutines[requestId] = StartCoroutine(DownloadTimeoutCoroutine(requestId, url));
-
-			if (requesterId == PhotonNetwork.LocalPlayer.ActorNumber)
+			if (!isProcessingQueue)
 			{
-				UpdateUIStatus($"Downloading audio from {url}...");
+				processingCoroutine = StartCoroutine(ProcessDownloadQueue());
 			}
 
-			if (downloadsReady.ContainsKey(url))
-				downloadsReady[url].Clear();
-			else
-				downloadsReady[url] = new HashSet<int>();
-
-			if (downloadErrors.ContainsKey(url))
-				downloadErrors[url].Clear();
-			else
-				downloadErrors[url] = new HashSet<int>();
-
-			// download clip (and title) if it's not cached already
-			if (!downloadedClips.ContainsKey(url))
-			{
-				try
-				{
-					var (filePath, title) = await YoutubeDL.DownloadAudioWithTitleAsync(url);
-
-					songTitles[url] = title;
-					photonView.RPC("SetSongTitle", RpcTarget.AllBuffered, url, title);
-					//Logger.LogInfo($"Set song title for url: {url} to {title}");
-
-					if (requesterId == PhotonNetwork.LocalPlayer.ActorNumber)
-					{
-						UpdateUIStatus($"Processing audio: {title}");
-					}
-
-					AudioClip clip = await GetAudioClipAsync(filePath);
-
-					downloadedClips[url] = clip;
-					Logger.LogInfo($"Downloaded and cached clip for video: {title}");
-				}
-				catch (Exception ex)
-				{
-					//Logger.LogError($"Failed to download audio: {ex.Message}");
-
-					if (requesterId == PhotonNetwork.LocalPlayer.ActorNumber)
-					{
-						UpdateUIStatus($"Error: {ex.Message}");
-					}
-
-					// Report download error to other players
-					photonView.RPC("ReportDownloadError", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber, url, ex.Message);
-
-					isAwaitingSyncPlayback = false;
-					return;
-				}
-			}
-			else
-			{
-				//Logger.LogInfo($"Clip already cached for url: {url}");
-			}
-
-			// report that this player has completed the download
-			photonView.RPC("ReportDownloadComplete", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber, url);
-
-			if (requesterId == PhotonNetwork.LocalPlayer.ActorNumber)
-			{
-				UpdateUIStatus("Waiting for all players to be ready...");
-			}
-
-			// Only the requester (or master client if handling a timeout) should wait and initiate playback
-			if ((requesterId == PhotonNetwork.LocalPlayer.ActorNumber) ||
-				(PhotonNetwork.IsMasterClient && (requesterId != PhotonNetwork.LocalPlayer.ActorNumber || isTimeoutRecovery)))
-			{
-				//Logger.LogInfo("Waiting for all players to be ready for playback...");
-				await WaitForPlayersReadyOrFailed(url);
-
-				// check if current request ID is still valid (prob wont happen)
-				if (currentRequestId != requestId)
-				{
-					Logger.LogWarning($"Request ID mismatch. Current: {currentRequestId}, This request: {requestId}");
-					return;
-				}
-
-				// notify for players that errored, but still play for others
-				if (downloadErrors.ContainsKey(url) && downloadErrors[url].Count > 0)
-				{
-					string errorMessage = $"Some players had download errors. Continuing playback for {downloadsReady[url].Count} players.";
-					Logger.LogWarning(errorMessage);
-					photonView.RPC("NotifyPlayersOfErrors", RpcTarget.All, errorMessage);
-				}
-
-				Logger.LogInfo($"All players ready for playback. Initiating sync playback for {downloadsReady[url].Count} players.");
-				photonView.RPC("SyncPlayback", RpcTarget.All, url, requesterId);
-			}
-
-			if (timeoutCoroutines.TryGetValue(requestId, out Coroutine coroutine) && coroutine != null)
-			{
-				StopCoroutine(coroutine);
-				timeoutCoroutines.Remove(requestId);
-			}
-
-			if (currentRequestId == requestId)
-			{
-				isDownloadInProgress = false;
-				currentDownloadUrl = "";
-				currentRequestId = "";
-			}
+			return;
 		}
 
-		[PunRPC]
+        [PunRPC]
 		public void NotifyPlayersOfErrors(string message)
 		{
 			Logger.LogWarning(message);
@@ -353,11 +366,98 @@ namespace BoomBoxCartMod
 			}
 		}
 
-		private IEnumerator DownloadTimeoutCoroutine(string requestId, string url)
+        private IEnumerator ProcessDownloadQueue()
+        {
+            isProcessingQueue = true;
+            Logger.LogInfo("Master Client Download Queue Processor started.");
+
+            while (downloadJobQueue.Count > 0 && isProcessingQueue)
+            {
+                string url = downloadJobQueue.Dequeue();
+
+                // Yield execution until the download and sync process for this URL is complete.
+                yield return MasterClientInitiateSync(url);
+            }
+
+            // Queue is empty, stop the processor.
+            isProcessingQueue = false;
+			currentDownloadUrl = null;
+            Logger.LogInfo("Master Client Download Queue Processor finished.");
+        }
+
+        private IEnumerator MasterClientInitiateSync(string url)
+        {
+            // Check if the song is still in the local playbackQueue (it might have been removed by a user)
+            if (!playbackQueue.Any(entry => entry.Url == url))
+            {
+				//Logger.LogInfo($"Skipping download for {url}, item removed from queue.");
+				yield break;
+            }
+
+            string requestId = Guid.NewGuid().ToString();
+
+            //if (isCurrentSong) isAwaitingSyncPlayback = true;
+            currentDownloadUrl = url;
+			currentRequestId = requestId;
+
+			if (downloadsReady.ContainsKey(url))
+			{
+                if (downloadsReady[url].Count == PhotonNetwork.PlayerList.Length) // All players already have the song downloaded
+                {
+					if (!isPlaying && !audioSource.isPlaying)
+					{
+						photonView.RPC("PlayPausePlayback", RpcTarget.All, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber); // Should not do anything if there is already a song playing
+					}
+
+					yield break;
+                }
+                downloadsReady[url].Clear();
+			}
+			else
+				downloadsReady[url] = new HashSet<int>();
+
+            if (downloadErrors.ContainsKey(url))
+                downloadErrors[url].Clear();
+            else
+                downloadErrors[url] = new HashSet<int>();
+
+            // RPC call to start the download/sync process on ALL clients
+            photonView.RPC("StartDownloadAndSync", RpcTarget.All, url, PhotonNetwork.LocalPlayer.ActorNumber);
+
+            // Start timeout coroutine
+            timeoutCoroutines[requestId] = StartCoroutine(DownloadTimeoutCoroutine(requestId, url));
+
+            // Yield until the consensus is reached
+            yield return StartCoroutine(WaitForPlayersReadyOrFailed(url));
+
+            // --- Cleanup and Final Sync ---
+
+            if (timeoutCoroutines.TryGetValue(requestId, out Coroutine coroutine) && coroutine != null)
+            {
+                StopCoroutine(coroutine);
+                timeoutCoroutines.Remove(requestId);
+            }
+
+            // Check if the URL we waited for is still the current download target
+            if (currentDownloadUrl != url)
+            {
+                // Logger.LogInfo($"Consensus finished for {url}, but download target changed. Aborting sync.");
+                yield break;
+            }
+
+            currentDownloadUrl = null;
+            currentRequestId = null;
+
+            Logger.LogInfo($"Consensus finished for {url}, Starting Playback.");
+
+            photonView.RPC("PlayPausePlayback", RpcTarget.All, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+        }
+
+        private IEnumerator DownloadTimeoutCoroutine(string requestId, string url)
 		{
 			yield return new WaitForSeconds(DOWNLOAD_TIMEOUT);
 
-			if (currentRequestId == requestId && isDownloadInProgress)
+			if (currentRequestId == requestId && isProcessingQueue)
 			{
 				Logger.LogWarning($"Download timeout for url: {url}");
 
@@ -384,16 +484,18 @@ namespace BoomBoxCartMod
 						photonView.RPC("NotifyPlayersOfErrors", RpcTarget.All, timeoutMessage);
 
 						// initiate playback with the master client as requester to unblock the system
-						photonView.RPC("SyncPlayback", RpcTarget.All, url, PhotonNetwork.LocalPlayer.ActorNumber);
-					}
-					else
+						if (GetCurrentSong()?.Url == url)
+						{
+							photonView.RPC("PlayPausePlayback", RpcTarget.All, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+						}
+                    }
+                    else
 					{
 						photonView.RPC("NotifyPlayersOfErrors", RpcTarget.All, "Download timed out for all players.");
 					}
 
-					isDownloadInProgress = false;
-					currentDownloadUrl = "";
-					currentRequestId = "";
+					currentDownloadUrl = null;
+					currentRequestId = null;
 					isTimeoutRecovery = false;
 				}
 			}
@@ -402,44 +504,92 @@ namespace BoomBoxCartMod
 		}
 
 		[PunRPC]
+		public async void StartDownloadAndSync(string url, int requesterId)
+		{
+			if (currentDownloadUrl != url)
+			{
+                currentDownloadUrl = url;
+
+                if (!downloadsReady.ContainsKey(url)) 
+					downloadsReady[url] = new HashSet<int>();
+                if (!downloadErrors.ContainsKey(url)) 
+					downloadErrors[url] = new HashSet<int>();
+            }
+
+			if (downloadedClips.ContainsKey(url))
+			{
+                photonView.RPC("ReportDownloadComplete", RpcTarget.All, url, PhotonNetwork.LocalPlayer.ActorNumber);
+                return;
+			}
+
+			isAwaitingSyncPlayback = GetCurrentSong()?.Url == url;
+
+			if (await StartAudioDownload(this, url))
+			{
+                photonView.RPC("ReportDownloadComplete", RpcTarget.All, url, PhotonNetwork.LocalPlayer.ActorNumber);
+				isAwaitingSyncPlayback = false;
+            }
+        }
+
+        [PunRPC]
 		public void SetSongTitle(string url, string title)
 		{
-			// cache title
+			// Cache title
 			songTitles[url] = title;
 
-			if (currentSongUrl == url)
-			{
-				currentSongTitle = title;
-				UpdateUIStatus($"Now playing: {title}");
-			}
+			AudioEntry currentSong = GetCurrentSong();
 
-			// History aktualisieren
-			BoomboxUI ui = GetComponent<BoomboxUI>();
-			if (ui != null)
+			if (currentSong != null && currentSong.Url == url)
 			{
-				ui.AddToHistory(title, url);
-			}
+				currentSong.Title = title;
+				if (currentSong.GetAudioClip() != null)
+				{
+					UpdateUIStatus($"Now playing: {title}");
+				}
+				else
+				{
+                    UpdateUIStatus($"Loading: {title}");
+                }
+            }
 		}
 
 		[PunRPC]
-		public void ReportDownloadComplete(int actorNumber, string url)
+		public void ReportDownloadComplete(string url, int actorNumber)
 		{
+			if (!PhotonNetwork.IsMasterClient)
+				return;
+
 			if (!downloadsReady.ContainsKey(url))
 				downloadsReady[url] = new HashSet<int>();
 
-			downloadsReady[url].Add(actorNumber);
-			//Logger.LogInfo($"Player {actorNumber} reported ready for url: {url}. Total ready: {downloadsReady[url].Count}");
-		}
+			if (audioSource.isPlaying && isPlaying) // Handle e.g. late join
+			{
+				PhotonNetwork.CurrentRoom.Players.TryGetValue(actorNumber, out Player targetPlayer);
+                if (!downloadsReady[url].Contains(actorNumber) && targetPlayer != null)
+				{
+                    photonView.RPC("PlayPausePlayback", targetPlayer, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                }
+            }
 
-		private async Task WaitForPlayersReadyOrFailed(string url)
+            downloadsReady[url].Add(actorNumber);
+            //Logger.LogInfo($"Player {actorNumber} reported ready for url: {url}. Total ready: {downloadsReady[url].Count}");
+        }
+
+        private IEnumerator WaitForPlayersReadyOrFailed(string url)
 		{
 			int totalPlayers = PhotonNetwork.PlayerList.Length;
 			int readyCount = 0;
 			int errorCount = 0;
 
-			// Wait until either all players are accounted for (ready + error = total) 
-			// or we have at least one player ready and some have errors
-			while (true)
+			float waitTime = 0.1f;
+
+            float? partialConsensusStartTime = null;
+            const float timeoutThreshold = 5.0f;
+
+
+            // Wait until either all players are accounted for (ready + error = total) 
+            // or we have at least one player ready and some have errors
+            while (true)
 			{
 				readyCount = downloadsReady.ContainsKey(url) ? downloadsReady[url].Count : 0;
 				errorCount = downloadErrors.ContainsKey(url) ? downloadErrors[url].Count : 0;
@@ -448,72 +598,196 @@ namespace BoomBoxCartMod
 
 				// Exit conditions:
 				// 1. All players are accounted for (ready + errors = total)
+				bool allAccountedFor = readyCount + errorCount >= totalPlayers;
 				// 2. At least one player is ready and some have errors and we've waited a reasonable time
-				if (readyCount + errorCount >= totalPlayers ||
-					(readyCount > 0 && errorCount > 0 && await Task.Delay(5000).ContinueWith(_ => true)))
+				bool partialConsensus = readyCount > 0 && errorCount > 0;
+
+				bool timeOutReached = false;
+
+                if (!partialConsensus) // If the condition is not met (e.g. a player reports ready, clearing the error count)
+                {
+                    partialConsensusStartTime = null;
+                }
+				else if (!partialConsensusStartTime.HasValue)
+				{
+					partialConsensusStartTime = Time.time;
+				}
+				else
+				{
+					timeOutReached = (Time.time - partialConsensusStartTime.Value) >= timeoutThreshold;
+                }
+
+
+                if (allAccountedFor || timeOutReached)
 				{
 					break;
 				}
 
-				await Task.Delay(100);
+				yield return new WaitForSeconds(waitTime);
 			}
 
-			Logger.LogInfo($"Ready to proceed with playback. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers}");
+			Logger.LogInfo($"n. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers} for url: {url}");
 		}
 
 		[PunRPC]
-		public void SyncPlayback(string url, int requesterId)
+		public void SyncQueue(int currentIndex, List<AudioEntry> queue, long currentSongTimeLeft, int requesterId) // Syncs the queue, but presumes no changes to the current song were made
 		{
-			//Logger.LogInfo($"SyncPlayback RPC received: url={url}, requesterId={requesterId}");
+			if (requesterId != PhotonNetwork.MasterClient.ActorNumber) // Should not be necessary, but why not
+				return;
 
-			if (isPlaying && currentSongUrl == url && audioSource.isPlaying)
+            Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queue={queue}");
+
+			currentSongIndex = currentIndex;
+			playbackQueue = queue;
+
+			int downloadStartIndex = currentSongIndex;
+			if (currentSongTimeLeft > 10000) // Do not bother trying to download the current song, if it has less than 10 seconds left to play
 			{
-				//Logger.LogInfo($"Already playing {url}, ignoring duplicate SyncPlayback");
+				downloadStartIndex += 1;
+			}
+
+			downloadStartIndex %= playbackQueue.Count;
+
+			foreach (AudioEntry song in playbackQueue)
+			{
+				string title = song.Title;
+
+                if (!songTitles.ContainsKey(title))
+				{
+					songTitles[title] = title;
+				}
+			}
+
+			//TODO: Add a way to download songs independantly from master client for late joins
+        }
+
+
+        [PunRPC]
+        public void DismissQueue(int requesterId)
+        {
+			if (requesterId != PhotonNetwork.MasterClient.ActorNumber) // Only allow the Host to dismiss the queue  -- TODO: Add option
+				return;
+
+            if (audioSource.isPlaying)
+            {
+                CleanupCurrentPlayback();
+                //Logger.LogInfo($"Playback stopped by player {requesterId}");
+                UpdateUIStatus("Ready to play music! Enter a Video URL");
+            }
+			playbackQueue.Clear();
+			currentSongIndex = -1;
+
+			if (PhotonNetwork.IsMasterClient)
+			{
+				downloadJobQueue.Clear();
+				ForceCancelDownload();
+			}
+        }
+
+        [PunRPC]
+        public void MoveQueueItem(int index, int newIndex, int requesterId) // Moves an item in the queue
+        {
+            //Logger.LogInfo($"MoveQueueItem RPC received: index={index}, newIndex={newIndex}");
+
+            if (index < 0 || index >= playbackQueue.Count || newIndex < 0 || newIndex >= playbackQueue.Count || index == newIndex)
+			{
+                Logger.LogError($"MoveQueueItem RPC received with invalid indices: {index}, {newIndex}, queue count: {playbackQueue.Count}");
+                return;
+			}
+
+            if (newIndex == currentSongIndex) // In case the song was moved past the currently playing song
+			{
+				int change = newIndex - index;
+				currentSongIndex -= change;
+			}
+
+			AudioEntry tempSong = playbackQueue[index];
+            playbackQueue.RemoveAt(index);
+            playbackQueue.Insert(newIndex, tempSong);
+
+			if (!PhotonNetwork.IsMasterClient)
+				return;
+
+            downloadJobQueue.Clear();
+            DownloadQueue(currentSongIndex); // Not ideal, but best i can be asked do for now. Will check if songs have been previously downloaded before trying to download them anyway.
+            if (!isProcessingQueue)
+            {
+                processingCoroutine = StartCoroutine(ProcessDownloadQueue());
+            }
+
+        }
+
+        [PunRPC]
+        public void RemoveQueueItem(int index, int requesterId) // Removes an item from the queue
+        {
+			//Logger.LogInfo($"RemoveQueueItem RPC received: index={index}");
+
+			playbackQueue.RemoveAt(index);
+
+			if (index == currentSongIndex) // Should never happen, but just to make sure
+			{
+				CleanupCurrentPlayback();
+
+				if (PhotonNetwork.IsMasterClient)
+				{
+					if (playbackQueue.Count > 0)
+					{
+						currentSongIndex = index % playbackQueue.Count;
+						if (currentSongIndex > 0 || loopQueue)
+						{
+							photonView.RPC("SyncPlayback", RpcTarget.All, currentSongIndex, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+							return;
+						}
+					}
+
+					currentSongIndex = -1;
+                }
+            }
+        } // No check for downloadJobQueue necessary, since we already check if a song exists in our playbackqueue before downloading
+
+        [PunRPC]
+		public async void SyncPlayback(int newSongIndex, long startTime, int requesterId) // Syncs the currently playing song, but presumes no changes to the queue were made
+		{
+			Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}´-- currentSongIndex={currentSongIndex} currentTime={GetCurrentTimeMilliseconds()}");
+
+			if (newSongIndex == -1)
+			{
+				currentSongIndex = newSongIndex;
+				CleanupCurrentPlayback();
 				return;
 			}
 
-			// check if this player has the song downloaded
-			if (!downloadedClips.ContainsKey(url))
-			{
-				Logger.LogError($"Clip not found for url: {url}");
+
+			if (currentSongIndex == newSongIndex) {
+				if (!isPlaying || !audioSource.isPlaying)
+				{
+					StartPlayBack();
+				}
+				SetPlaybackTime(startTime);
 				return;
 			}
-
-			CleanupCurrentPlayback();
-
-			currentSongUrl = url;
-			if (songTitles.TryGetValue(url, out string title))
-			{
-				currentSongTitle = title;
+			else if (isPlaying || audioSource.isPlaying) {
+				CleanupCurrentPlayback();
 			}
+			
+			AudioEntry oldSong = GetCurrentSong();
+            currentSongIndex = newSongIndex;
+            AudioEntry newSong = GetCurrentSong();
 
-			isAwaitingSyncPlayback = false;
+            if (!PhotonNetwork.IsMasterClient) // Handle starting to play a new song from here
+				return;
 
-			// play that thang
-			audioSource.clip = downloadedClips[url];
-			SetQuality(qualityLevel);
-			UpdateAudioRangeBasedOnVolume(audioSource.volume);
-			audioSource.Play();
-			isPlaying = true;
-
-			UpdateUIStatus($"Now playing: {currentSongTitle}");
-
-			if (MonstersCanHearMusic && EnemyDirector.instance != null)
-{
-    EnemyDirector.instance.SetInvestigate(transform.position, 5f);
-}
-		}
-
-		private void CleanupCurrentPlayback()
-		{
-			if (audioSource.isPlaying)
+			if (newSong?.Url != null && oldSong?.Url != newSong.Url) // The download process will play the song once it is finished
 			{
-				audioSource.Stop();
-				isPlaying = false;
+				// TODO: check logic to where the song should be added
+				downloadJobQueue.Clear();
+				DownloadQueue(currentSongIndex);
 			}
-
-			audioSource.clip = null;
-		}
+			else 
+			{
+				photonView.RPC("PlayPausePlayback", RpcTarget.All, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+			}
+        }
 
 		public void RemoveFromCache(string url)
 		{
@@ -616,37 +890,71 @@ namespace BoomBoxCartMod
 			//Logger.LogInfo($"Updated audio range based on volume {volume}: maxDistance={newMaxDistance}");
 		}
 
-		[PunRPC]
-		public void PausePlayback(int requesterId)
-		{
-			if (audioSource.isPlaying)
+        [PunRPC]
+        public void UpdateLooping(bool loop, int requesterId) // TODO: imp
+        {
+			if (PhotonNetwork.MasterClient.ActorNumber == requesterId)
 			{
-				audioSource.Pause();
-				isPlaying = false;
-				//Logger.LogInfo($"Playback paused by player {requesterId}");
-				UpdateUIStatus($"Paused: {currentSongTitle}");
+				LoopQueue = loop;
+				//Logger.LogInfo($"Volume looping to {loop} by player {requesterId}");
 			}
-		}
+        }
 
-		[PunRPC]
-		public void StopPlayback(int requesterId)
+        [PunRPC]
+		public void PlayPausePlayback(bool startPlaying, long startTime, int requesterId)
 		{
-			if (audioSource.isPlaying)
+			if (playbackQueue.Count == 0)
 			{
-				audioSource.Stop();
-				isPlaying = false;
-				//Logger.LogInfo($"Playback stopped by player {requesterId}");
-				UpdateUIStatus($"Stopped: {currentSongTitle}");
+				return;
 			}
-		}
 
-		public void ForceCancelDownload()
-		{
-			if (isDownloadInProgress)
+			if (startPlaying != isPlaying)
 			{
-				isDownloadInProgress = false;
-				currentDownloadUrl = "";
-				currentRequestId = "";
+				string playPauseText;
+				if (startPlaying)
+				{
+					if (currentSongIndex == -1)
+					{
+						if (PhotonNetwork.IsMasterClient)
+						{
+							photonView.RPC("SyncPlayback", RpcTarget.All, 0, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+						}
+						return;
+					}
+					StartPlayBack();
+					SetPlaybackTime(startTime);
+					playPauseText = "Started";
+				}
+				else
+				{
+					PausePlayBack();
+					playPauseText = "Paused";
+				}
+				Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
+				UpdateUIStatus($"{playPauseText} Playback");
+			}
+
+            AudioEntry currentSong = GetCurrentSong();
+
+            UpdateUIStatus($"Now playing: {(currentSong?.Url == null ? "Unkown" : currentSong?.Title)}");
+
+            if (MonstersCanHearMusic && EnemyDirector.instance != null && currentSong != null && transform?.position != null)
+            {
+                EnemyDirector.instance.SetInvestigate(transform.position, 5f);
+            }
+        }
+
+
+        public void ForceCancelDownload()
+		{
+			if (isProcessingQueue)
+			{
+				string urlToReport = currentDownloadUrl;
+				if (urlToReport == null)
+				{
+					urlToReport = "Unknown";
+				}
+				currentDownloadUrl = null;
 
 				// Clean up any running coroutines
 				foreach (var coroutine in timeoutCoroutines.Values)
@@ -658,8 +966,9 @@ namespace BoomBoxCartMod
 				}
 				timeoutCoroutines.Clear();
 
-				UpdateUIStatus("Download cancelled.");
-				Logger.LogInfo("Download was force cancelled by user.");
+				photonView.RPC("ReportDownloadError", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber, urlToReport, "Download cancelled.");
+
+                Logger.LogInfo("Download was force cancelled by user.");
 			}
 		}
 
@@ -675,7 +984,7 @@ namespace BoomBoxCartMod
 		public override void OnPlayerLeftRoom(Photon.Realtime.Player otherPlayer)
 		{
 			// idek if this method works, never tested, but its here !
-			if (isDownloadInProgress)
+			if (isProcessingQueue)
 			{
 				if (!string.IsNullOrEmpty(currentDownloadUrl))
 				{
@@ -700,35 +1009,40 @@ namespace BoomBoxCartMod
 
 			base.OnPlayerEnteredRoom(newPlayer);
 
-			if (PhotonNetwork.IsMasterClient && isPlaying && !string.IsNullOrEmpty(currentSongUrl))
+			AudioEntry currentSong = GetCurrentSong();
+
+			if (PhotonNetwork.IsMasterClient && isPlaying && currentSong != null && currentSong.Url != null)
 			{
 				Logger.LogInfo($"New player {newPlayer.ActorNumber} joined - syncing current playback state");
 
-				if (songTitles.ContainsKey(currentSongUrl))
-				{
-					photonView.RPC("SetSongTitle", newPlayer, currentSongUrl, songTitles[currentSongUrl]);
-				}
-
-				photonView.RPC("SyncPlayback", newPlayer, currentSongUrl, PhotonNetwork.LocalPlayer.ActorNumber);
-				photonView.RPC("UpdateQuality", newPlayer, qualityLevel, PhotonNetwork.LocalPlayer.ActorNumber);
-
-				// somehow get new player to acc play the song for themselves too
+                photonView.RPC("SyncQueue", newPlayer, currentSongIndex, playbackQueue, (long)Math.Round((audioSource.clip.length - audioSource.time) * 1000f), PhotonNetwork.LocalPlayer.ActorNumber); // Syncs and downloads queue
+				//photonView.RPC("UpdateQuality", newPlayer, qualityLevel, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView.RPC("UpdateLooping", newPlayer, LoopQueue, PhotonNetwork.LocalPlayer.ActorNumber);
+                //photonView.RPC("UpdateVolume", newPlayer, Buffered, normalizedVolume, PhotonNetwork.LocalPlayer.ActorNumber);
 			}
+        }
+
+		private static bool applyQualityToDownloads = false;
+
+		public static bool ApplyQualityToDownloads
+        {
+    		get => applyQualityToDownloads;
+    		set => applyQualityToDownloads = value;
 		}
 
-		private bool monstersCanHearMusic = true;
+        private static bool monstersCanHearMusic = false;
 
-		public bool MonstersCanHearMusic
-		{
-    		get => monstersCanHearMusic;
-    		set => monstersCanHearMusic = value;
-		}
+        public static bool MonstersCanHearMusic
+        {
+            get => monstersCanHearMusic;
+            set => monstersCanHearMusic = value;
+        }
 
-		private bool loopSong = false;
-		public bool LoopSong
+        private bool loopQueue = false;
+		public bool LoopQueue
 		{
-    		get => loopSong;
-    		set => loopSong = value;
+    		get => loopQueue;
+    		set => loopQueue = value;
 		}
 
 		public static async Task<AudioClip> GetAudioClipAsync(string filePath)
@@ -765,24 +1079,83 @@ namespace BoomBoxCartMod
 				await tcs.Task;
 				AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
 
-				if (clip != null)
-				{
-					try
-					{
-						await Task.Delay(500);
-						if (Directory.Exists(Path.GetDirectoryName(filePath)))
-						{
-							Directory.Delete(Path.GetDirectoryName(filePath), true);
-						}
-					}
-					catch (Exception ex)
-					{
-						Logger.LogWarning($"Failed to clean up temp directory: {ex.Message}");
-					}
-				}
+				// MOVED to YouTubeDL.CleanUp()
 
 				return clip;
 			}
 		}
-	}
+
+
+        public async Task<bool> StartAudioDownload(Boombox boombox, string url)
+        {
+            if (!downloadedClips.ContainsKey(url))
+            {
+                try
+                {
+                    var title = await YoutubeDL.DownloadAudioTitleAsync(url);
+
+                    songTitles[url] = title;
+                    boombox.photonView.RPC("SetSongTitle", RpcTarget.All, url, title);
+                    //Logger.LogInfo($"Set song title for url: {url} to {title}");
+
+                    var filePath = await YoutubeDL.DownloadAudioAsync(url, title);
+
+                    if (GetCurrentSong()?.Url == url)
+                    {
+                        boombox.UpdateUIStatus($"Processing audio: {title}");
+                    }
+
+                    AudioClip clip = await GetAudioClipAsync(filePath);
+
+                    downloadedClips[url] = clip;
+                    Logger.LogInfo($"Downloaded and cached clip for video: {title}");
+                }
+                catch (Exception ex)
+                {
+                    //Logger.LogError($"Failed to download audio: {ex.Message}");
+
+                    if (GetCurrentSong()?.Url == url)
+                    {
+                        boombox.UpdateUIStatus($"Error: {ex.Message}");
+                    }
+
+                    // Report download error to other players
+                    boombox.photonView.RPC("ReportDownloadError", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber, url, ex.Message);
+
+                    return false;
+                }
+            }
+            else
+            {
+                //Logger.LogInfo($"Clip already cached for url: {Url}");
+            }
+
+
+            foreach (AudioEntry song in boombox.playbackQueue.FindAll(entry => entry.Url == url))
+			{
+				if (songTitles.ContainsKey(url))
+					song.Title = songTitles[url];
+			}
+
+            return true;
+        }
+
+
+        public class AudioEntry
+        {
+            public string Title;
+            public string Url;
+
+            public AudioEntry(string title, string url)
+            {
+                Title = title;
+                Url = url;
+            }
+
+			public AudioClip GetAudioClip()
+			{
+				return downloadedClips.ContainsKey(Url) ? downloadedClips[Url] : null;
+            }
+        }
+    }
 }

@@ -43,5 +43,11 @@ namespace BoomBoxCartMod
 
 			OpenUIKey = Config.Bind("General", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
 		}
-	}
+
+		private void OnDestroy()
+		{
+			YoutubeDL.CleanUp();
+        }
+
+    }
 }
