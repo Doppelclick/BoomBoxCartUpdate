@@ -1,6 +1,12 @@
 # Changelog
+## 1.2.4
+ - Added Global Mute Keybind
+ - Added Ability to dismiss queue, with config option to only allow the master client to do so
+ - Improved link handling, added support for youtube music links
+ - Added support for link timestamps (?t=42 or &t=42), with config option
 ## 1.2.3
  - Added Playback Queue instead of History
+ - Ensured that Playback time is synced between players
  - Add time slider, play/pause
  - Add setting: "Apply Quality Setting to Downloads"
 ## 1.2.2

@@ -15,7 +15,7 @@ namespace BoomBoxCartMod
         private static ManualLogSource Logger => Instance.logger;
 
         public PhotonView photonView;
-        private bool showUI = false;
+        public static bool showUI = false;
         private string urlInput = "";
 
         // Time
@@ -130,7 +130,7 @@ namespace BoomBoxCartMod
                 errorMessage = "";
             }
 
-            if (showUI && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+            if (showUI && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) // || Keyboard.current[Instance.OpenUIKey.Value].wasPressedThisFrame TODO: Fix: Prevents the key from opening the UI
             {
                 if (controller != null)
                 {
@@ -201,9 +201,9 @@ namespace BoomBoxCartMod
         {
             if (boombox != null)
             {
-                if (boombox.IsProcessingQueue() && boombox.currentSong != null && boombox.currentSong.GetAudioClip() == null)
+                if (boombox.downloadHelper.IsProcessingQueue() && boombox.currentSong != null && boombox.currentSong.GetAudioClip() == null)
                 {
-                    statusMessage = $"Downloading audio from {boombox.GetCurrentDownloadUrl()}...";
+                    statusMessage = $"Downloading audio from {boombox.downloadHelper.GetCurrentDownloadUrl()}...";
                 }
                 else if (boombox.isPlaying && boombox.currentSong != null)
                 {
@@ -414,7 +414,7 @@ namespace BoomBoxCartMod
         private void DrawUI(int windowID)
         {
             // Title Header
-            GUILayout.Label("Control The Boombox In The Cart", headerStyle);
+            GUILayout.Label($"Control The Boombox In The Cart{(Boombox.audioMuted ? $" - MUTED({Instance.GlobalMuteKey.Value.ToString()})" : "")}", headerStyle);
 
             // Main Horizontal Layout for Controls (Left) and Queue (Right)
             GUILayout.BeginHorizontal();
@@ -454,7 +454,7 @@ namespace BoomBoxCartMod
 
 
         // Draw the Main Panel
-        private void DrawMainPanel(Boombox boombox)
+        private void DrawMainPanel(Boombox boombox) // TODO: Fix inability to change playback time sometimes
         {
             scrollPosition = GUILayout.BeginScrollView(scrollPosition, false, false, GUILayout.ExpandHeight(true));
                 
@@ -573,15 +573,16 @@ namespace BoomBoxCartMod
                 string playButtonText = boombox != null && boombox.playbackQueue.Count > 0 ? "+ ENQUEUE" : "▶ PLAY";
                 if (GUILayout.Button(playButtonText, buttonStyle, GUILayout.Height(40)))
                 {
-                    if (!IsValidVideoUrl(urlInput))
+                (string cleanedUrl, int seconds) = IsValidVideoUrl(urlInput);
+                    if (string.IsNullOrEmpty(cleanedUrl))
                     {
                         ShowErrorMessage("Invalid Video URL!");
                     }
-                    else if (lastUrl != urlInput)
+                    else if (lastUrl != cleanedUrl)
                     {
-                        lastUrl = urlInput;
+                        lastUrl = cleanedUrl;
                         // Use RequestSong to add a song to the queue, and initiate its download. It will start playing if the queue was empty before
-                        photonView?.RPC("RequestSong", RpcTarget.All, urlInput, PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC("RequestSong", RpcTarget.All, cleanedUrl, seconds, PhotonNetwork.LocalPlayer.ActorNumber);
                         GUI.FocusControl(null);
                     }
                 }
@@ -599,23 +600,12 @@ namespace BoomBoxCartMod
                 }
 
 
-
-                /* Possibly only allow the master client to use this
-                // Dismiss Queue
-                if (GUILayout.Button("Dismiss Queue", buttonStyle, GUILayout.Height(40)))
-                {
-                    GUI.FocusControl(null);
-                    photonView.RPC("DismissQueue", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber);
-                }
-                */
-
-
                 // Fast-Forward-Button (10 seconds forward)
                 if (GUILayout.Button(">>", smallButtonStyle, GUILayout.Width(40), GUILayout.Height(40)))
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex, (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex(), (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
                     }
                 }
 
@@ -623,7 +613,7 @@ namespace BoomBoxCartMod
 
 
                 // Download status information for current song
-                if (boombox != null && boombox.IsProcessingQueue() && boombox.currentSong?.GetAudioClip() == null && boombox.GetCurrentDownloadUrl != null)
+                if (boombox != null && boombox.downloadHelper.IsProcessingQueue() && boombox.currentSong?.GetAudioClip() == null && boombox.downloadHelper.GetCurrentDownloadUrl() != null)
                 {
                     GUILayout.Space(10);
                     GUILayout.Label("Download in progress...", statusStyle);
@@ -632,7 +622,7 @@ namespace BoomBoxCartMod
                     GUILayout.FlexibleSpace();
                     if (GUILayout.Button("Force Cancel Download", buttonStyle, GUILayout.Width(200), GUILayout.Height(30)))
                     {
-                        boombox.ForceCancelDownload();
+                        boombox.downloadHelper.ForceCancelDownload();
                     }
                     GUILayout.FlexibleSpace();
                     GUILayout.EndHorizontal();
@@ -803,7 +793,16 @@ namespace BoomBoxCartMod
         // Draw the Queue Panel
         private void DrawQueue(Boombox boombox)
         {
+            GUILayout.BeginHorizontal();
             GUILayout.Label("🎶 Playback Queue", queueHeaderStyle);
+            // Dismiss Queue
+            if (GUILayout.Button("Dismiss Queue", smallButtonStyle))
+            {
+                photonView.RPC("DismissQueue", (PhotonNetwork.IsMasterClient ? RpcTarget.All : RpcTarget.MasterClient), PhotonNetwork.LocalPlayer.ActorNumber);
+                lastUrl = null;
+            }
+            GUILayout.EndHorizontal();
+
             queueScrollPosition = GUILayout.BeginScrollView(queueScrollPosition, false, true, GUILayout.ExpandHeight(true));
 
                 List<Boombox.AudioEntry> fullQueue = boombox.playbackQueue;
@@ -899,9 +898,9 @@ namespace BoomBoxCartMod
             return $"{(int)Math.Floor(time / 60)}:{(int)(time % 60)}";
         }
 
-        private bool IsValidVideoUrl(string url)
+        private (string cleanedUrl, int seconds) IsValidVideoUrl(string url)
         {
-            return Boombox.IsValidVideoUrl(url);
+            return DownloadHelper.IsValidVideoUrl(url);
         }
 
         private void ShowErrorMessage(string message)

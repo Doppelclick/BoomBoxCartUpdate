@@ -16,6 +16,7 @@ Reach out to me (link at the end) for issues with any service listed here, or su
 ## Usage
 
 <p>Make sure everyone in your lobby has the mod installed!</p>
+<p>Incompatible with the original BoomBox mod. May cause crashes.</p>
 
 <p>How to use mod:</p>
 <ol>

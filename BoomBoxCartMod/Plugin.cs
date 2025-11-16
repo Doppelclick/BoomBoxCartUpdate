@@ -18,9 +18,9 @@ namespace BoomBoxCartMod
 	[BepInPlugin(modGUID, modName, modVersion)]
 	public class BoomBoxCartMod : BaseUnityPlugin
 	{
-		private const string modGUID = "ColtG5.BoomboxCart";
-		private const string modName = "BoomboxCart";
-		private const string modVersion = "1.2.2";
+		private const string modGUID = "Doppelclick.BoomboxCartUpgrade";
+		private const string modName = "BoomboxCartUpgrade";
+		private const string modVersion = "1.2.4";
 
 		private readonly Harmony harmony = new Harmony(modGUID);
 
@@ -28,8 +28,11 @@ namespace BoomBoxCartMod
 		internal ManualLogSource logger;
 
 		public ConfigEntry<Key> OpenUIKey { get; private set; }
+        public ConfigEntry<Key> GlobalMuteKey { get; private set; }
+        public ConfigEntry<bool> MasterClientDismissQueue { get; private set; }
+        public ConfigEntry<bool> UseTimeStampOnce { get; private set; }
 
-		private void Awake()
+        private void Awake()
 		{
 			if (instance == null)
 			{
@@ -42,9 +45,12 @@ namespace BoomBoxCartMod
 			harmony.PatchAll();
 
 			OpenUIKey = Config.Bind("General", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
-		}
+            GlobalMuteKey = Config.Bind("General", "GlobalMuteKey", Key.M, "Key to mute all playback."); // TODO: Possibly make default value Key.None
+            MasterClientDismissQueue = Config.Bind("General", "MasterClientDismissQueue", true, "Allow only the master client to dismiss the queue.");
+            UseTimeStampOnce = Config.Bind("General", "UseTimeStampOnce", false, "Only use the timestamp provided with a Url the first time it is played.");
+        }
 
-		private void OnDestroy()
+        private void OnDestroy()
 		{
 			YoutubeDL.CleanUp();
         }

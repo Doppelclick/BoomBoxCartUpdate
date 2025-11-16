@@ -113,8 +113,10 @@
     <Compile Include="Boombox\Boombox.cs" />
     <Compile Include="Boombox\BoomboxController.cs" />
     <Compile Include="Boombox\BoomboxUI.cs" />
+    <Compile Include="Boombox\DownloadHelper.cs" />
     <Compile Include="Boombox\VisualEffects.cs" />
     <Compile Include="Boombox\Visualizer.cs" />
+    <Compile Include="Patches\CameraAimPatch.cs" />
     <Compile Include="Patches\PhysGrabCartPatch.cs" />
     <Compile Include="Patches\PlayerControllerPatch.cs" />
     <Compile Include="Plugin.cs" />

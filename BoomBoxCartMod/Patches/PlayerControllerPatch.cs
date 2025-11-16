@@ -46,7 +46,7 @@ namespace BoomBoxCartMod.Patches
 		private static BoomBoxCartMod Instance = BoomBoxCartMod.instance;
 		private static ManualLogSource Logger => Instance.logger;
 
-		[HarmonyPatch("Update")]
+        [HarmonyPatch("Update")]
 		[HarmonyPostfix]
 		static void PatchPlayerControllerUpdate(PlayerController __instance)
 		{
