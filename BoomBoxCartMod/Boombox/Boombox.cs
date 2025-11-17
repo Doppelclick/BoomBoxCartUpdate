@@ -413,7 +413,7 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}, queueSize={playbackQueue.Count}");
+            //Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}, queueSize={playbackQueue.Count}");
 
 
             if (GetCurrentSongIndex() == newSongIndex) {

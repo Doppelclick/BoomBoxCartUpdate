@@ -481,7 +481,7 @@ namespace BoomBoxCartMod
                     false,
                     false,
                     GUILayout.Height(60)
-                );
+                ); // TODO: Allow scrolling sideways
 
                 urlInput = GUILayout.TextField(urlInput, textFieldStyle, GUILayout.Height(34));
                 urlInput = Regex.Replace(urlInput, @"\s+", "");
@@ -549,7 +549,7 @@ namespace BoomBoxCartMod
                         {
                             // update time for immediate feedback while sliding
                             float actualTime = newTimePercentage * songLength;
-                            boombox.audioSource.time = actualTime;
+                            boombox.audioSource.time = actualTime; // Math.Max(0, Math.Min(actualTime, boombox.audioSource.clip.length)) -- Not really necessary
 
                             songTimePerc = newTimePercentage;
                         }

@@ -19,8 +19,8 @@ namespace BoomBoxCartMod
 	[BepInPlugin(modGUID, modName, modVersion)]
 	public class BoomBoxCartMod : BaseUnityPlugin
 	{
-		private const string modGUID = "Doppelclick.BoomboxCartUpgrade";
-		private const string modName = "BoomboxCartUpgrade";
+		public const string modGUID = "Doppelclick.BoomboxCartUpgrade";
+		public const string modName = "BoomboxCartUpgrade";
 		public const string modVersion = "1.2.4";
 
 		private readonly Harmony harmony = new Harmony(modGUID);
