@@ -24,6 +24,7 @@ namespace BoomBoxCartMod
 
 		public PhotonView photonView;
 		public AudioSource audioSource;
+
 		public DownloadHelper downloadHelper = null;
 
 		public float maxVolumeLimit = 0.8f; // make the range smaller than 0 to 1.0 volume!
@@ -136,9 +137,10 @@ namespace BoomBoxCartMod
 				mutePressed = false;
 			}
 
-			if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Handle next song
+			if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Handle next song TODO: Fix issues
             {
 				int currentIndex = GetCurrentSongIndex();
+				CleanupCurrentPlayback();
 
 				if (currentIndex == -1) // Current song not found in queue
 				{
@@ -146,14 +148,7 @@ namespace BoomBoxCartMod
                 }
                 else if (currentIndex + 1 >= playbackQueue.Count) // Current song is at end of queue, stop playback or loop to the start if loopQueue is enabled
 				{
-					if (!loopQueue)
-					{
-                        photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
-                    }
-                    else
-					{
-                        photonView.RPC("SyncPlayback", RpcTarget.All, 0, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
-                    }
+					photonView.RPC("SyncPlayback", RpcTarget.All, loopQueue ? 0 : -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
                     return;
 				}
 				else // Middle of queue, start playing the next song
@@ -191,16 +186,14 @@ namespace BoomBoxCartMod
 
         private void CleanupCurrentPlayback()
         {
-            if (audioSource.isPlaying)
-            {
-                audioSource.Stop();
-                isPlaying = false;
-            }
+			if (audioSource.isPlaying)
+				audioSource.Stop();
+            isPlaying = false;
 
             audioSource.clip = null;
         }
 
-        public void StartPlayBack()
+        public void StartPlayBack() // TODO: Add request to check if a player is using the mod, if the request does not come back, ignore them
 		{
             AudioClip clip = currentSong?.GetAudioClip();
 			
@@ -211,14 +204,14 @@ namespace BoomBoxCartMod
                 return;
 			}
 
-            if (audioSource.clip != null && audioSource.clip == clip)
+            if (audioSource.clip == clip)
             {
 				audioSource.Play();
 				isPlaying = true;
 				return;
             }
 
-			audioSource.Stop(); // Probably unnescessary
+			CleanupCurrentPlayback(); // Probably unnescessary
             audioSource.clip = clip;
 			audioSource.loop = false; // Handled in Update() since we are using a queue
             SetQuality(qualityLevel);
@@ -264,7 +257,7 @@ namespace BoomBoxCartMod
 			}
 			*/
 
-            AudioEntry song = new AudioEntry(DownloadHelper.songTitles.ContainsKey(url) ? DownloadHelper.songTitles[url] : "Unknown Title", url);
+            AudioEntry song = new AudioEntry((DownloadHelper.songTitles.ContainsKey(url) ? DownloadHelper.songTitles[url] : "Unknown Title"), url);
 			song.StartTime = seconds;
             playbackQueue.Add(song);
 
@@ -324,7 +317,7 @@ namespace BoomBoxCartMod
         {
 			if (requesterId != PhotonNetwork.MasterClient.ActorNumber) // Only allow the Host to dismiss the queue
 			{
-				if (PhotonNetwork.IsMasterClient && !Instance.MasterClientDismissQueue.Get<bool>()) // Only depends on the host's config setting
+				if (PhotonNetwork.IsMasterClient && !Instance.MasterClientDismissQueue.Value) // Only depends on the host's config setting
 				{
                     photonView.RPC("DismissQueue", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber);
                 }
@@ -392,9 +385,9 @@ namespace BoomBoxCartMod
 					if (playbackQueue.Count > 0)
 					{
 						index %= playbackQueue.Count; // currentSongIndex == index
-						if (currentIndex > 0 || loopQueue)
+						if (currentIndex < playbackQueue.Count || loopQueue) // If the song was not the last in the queue or we want to loop
 						{
-							photonView.RPC("SyncPlayback", RpcTarget.All, currentIndex, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+							photonView.RPC("SyncPlayback", RpcTarget.All, index, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
 							return;
 						}
 					}
@@ -420,18 +413,18 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            //Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}");
+            Logger.LogInfo($"SyncPlayback RPC received: newSongIndex={newSongIndex}, startTime={startTime}, requesterId={requesterId}, queueSize={playbackQueue.Count}");
 
 
             if (GetCurrentSongIndex() == newSongIndex) {
-				if (!isPlaying || !audioSource.isPlaying) // TODO: Possibly do not start playing the song when the time of the song is changed, as this should be handled by PlayPausePlayback
+                SetPlaybackTime(startTime);
+                if (!isPlaying || !audioSource.isPlaying) // TODO: Possibly do not start playing the song when the time of the song is changed, as this should be handled by PlayPausePlayback
 				{
 					StartPlayBack();
 				}
-				SetPlaybackTime(startTime);
 				return;
 			}
-			else if (isPlaying || audioSource.isPlaying) {
+			else if (isPlaying || audioSource.isPlaying) { // Changing to new song
 				CleanupCurrentPlayback();
 			}
 			
@@ -441,20 +434,28 @@ namespace BoomBoxCartMod
             if (!PhotonNetwork.IsMasterClient) // Handle starting to play a new song from here
 				return;
 
-			if (currentSong?.Url != null && oldSong?.Url != currentSong.Url) // The download process will play the song once it is finished
+			if (currentSong?.Url == null) // Should never happen
+			{
+                photonView.RPC("RemoveQueueItem", RpcTarget.All, newSongIndex, PhotonNetwork.LocalPlayer.ActorNumber);
+                return;
+			}
+
+			if (currentSong.GetAudioClip() == null) // The download process will play the song once it is finished
 			{
 				// TODO: add proper logic to where the song should be added, instead of just iterating over the whole queue
-				downloadHelper.DismissDownloadQueue();
+				if (currentSong.Url != downloadHelper.GetCurrentDownloadUrl()) 
+					downloadHelper.DismissDownloadQueue();
                 isAwaitingSyncPlayback = true;
-                downloadHelper.DownloadQueue(newSongIndex);
+                if (currentSong.Url != downloadHelper.GetCurrentDownloadUrl())
+                    downloadHelper.DownloadQueue(newSongIndex);
 			}
-			else if (currentSong != null)
+			else
 			{
 				photonView.RPC(
 					"PlayPausePlayback",
 					RpcTarget.All,
 					true,
-					(long)(Boombox.GetCurrentTimeMilliseconds() - currentSong.UseStartTime() * 1000),
+					Boombox.GetCurrentTimeMilliseconds() - currentSong.UseStartTime() * 1000,
 					PhotonNetwork.LocalPlayer.ActorNumber
 				);
 			}
@@ -557,12 +558,12 @@ namespace BoomBoxCartMod
 					{
 						if (PhotonNetwork.IsMasterClient)
 						{
-							photonView.RPC("SyncPlayback", RpcTarget.All, 0, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+							photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
 						}
 						return;
 					}
-					StartPlayBack();
 					SetPlaybackTime(startTime);
+					StartPlayBack();
 					playPauseText = "Started";
 				}
 				else
@@ -648,7 +649,7 @@ namespace BoomBoxCartMod
 			public int UseStartTime()
 			{
 				int re = StartTime;
-				if (Instance.UseTimeStampOnce.Get<bool>())
+				if (Instance.UseTimeStampOnce.Value)
 				{
 					StartTime = 0;
 				}

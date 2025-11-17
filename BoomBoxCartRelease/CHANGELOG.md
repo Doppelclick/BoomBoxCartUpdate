@@ -4,6 +4,7 @@
  - Added Ability to dismiss queue, with config option to only allow the master client to do so
  - Improved link handling, added support for youtube music links
  - Added support for link timestamps (?t=42 or &t=42), with config option
+ - Should work now if not all players in the lobby have the mod
 ## 1.2.3
  - Added Playback Queue instead of History
  - Ensured that Playback time is synced between players

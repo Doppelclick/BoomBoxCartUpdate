@@ -50,6 +50,9 @@ namespace BoomBoxCartMod.Patches
 		[HarmonyPostfix]
 		static void PatchPlayerControllerUpdate(PlayerController __instance)
 		{
+			if (Instance.modDisabled)
+				return;
+
 			if (__instance.physGrabObject != null)
 			{
 				PlayerGrabbingTracker.SetLocalPlayerGrabbing(__instance.physGrabObject.gameObject);

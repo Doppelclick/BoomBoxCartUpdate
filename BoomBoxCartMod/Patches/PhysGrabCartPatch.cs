@@ -18,10 +18,13 @@ namespace BoomBoxCartMod.Patches
 		[HarmonyPostfix]
 		static void PatchPhysGrabCartStart(PhysGrabCart __instance)
 		{
-			//Logger.LogInfo($"PhysGrabCart Start: {__instance.name}");
+            if (Instance.modDisabled)
+                return;
 
-			// if this cart is active while in the shop, don't add boombox to them
-			if (RunManager.instance.levelCurrent == RunManager.instance.levelShop)
+            //Logger.LogInfo($"PhysGrabCart Start: {__instance.name}");
+
+            // if this cart is active while in the shop, don't add boombox to them
+            if (RunManager.instance.levelCurrent == RunManager.instance.levelShop)
 			{
 				return;
 			}

@@ -22,7 +22,7 @@ namespace BoomBoxCartMod
         private bool isTimeSliderBeingDragged = false; // used to apply changes on slider release
         private int songIndexForTime = -2;
         private float songTimePerc = 0f;
-        private float lastSentSongTimePerc = 0f;
+        private float lastSentSongTimePerc = -1f;
 
         // Volume
         private float normalizedVolume = 0.3f; // norm volume is 0-1, actual volume is 0-maxVolumeLimit (in boombox.cs) ((1 is so loud))
@@ -145,7 +145,10 @@ namespace BoomBoxCartMod
 
             if (isTimeSliderBeingDragged && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
             {
-                isVolumeSliderBeingDragged = false;
+                isTimeSliderBeingDragged = false;
+                songIndexForTime = -2;
+                songTimePerc = 0f;
+                lastSentSongTimePerc = -1f;
                 //Logger.LogInfo("Time slider released, sending time update");
                 SendTimeUpdate();
             }
@@ -526,8 +529,9 @@ namespace BoomBoxCartMod
 
                 float newTimePercentage = GUILayout.HorizontalSlider(timeDisplayPercentage, 0f, 1f, sliderStyle, GUI.skin.horizontalSliderThumb);
 
+                int songIndex = boombox.GetCurrentSongIndex();
 
-                if (audioAvailable && boombox.GetCurrentSongIndex() != -1)
+                if (audioAvailable && songIndex != -1)
                 {
                     // if volume changed and we weren't already dragging, start tracking drag
                     if (newTimePercentage != timeDisplayPercentage)
@@ -538,10 +542,10 @@ namespace BoomBoxCartMod
                         }
                         if (songIndexForTime == -2)
                         {
-                            songIndexForTime = boombox.GetCurrentSongIndex();
+                            songIndexForTime = songIndex;
                         }
 
-                        if (songIndexForTime == boombox.GetCurrentSongIndex())
+                        if (songIndexForTime == songIndex)
                         {
                             // update time for immediate feedback while sliding
                             float actualTime = newTimePercentage * songLength;
