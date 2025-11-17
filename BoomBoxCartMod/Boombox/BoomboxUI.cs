@@ -6,6 +6,7 @@ using UnityEngine.InputSystem.XR;
 using BepInEx.Logging;
 using System;
 using System.Collections.Generic;
+using BoomBoxCartMod.Util;
 
 namespace BoomBoxCartMod
 {
@@ -168,7 +169,7 @@ namespace BoomBoxCartMod
             }
         }
 
-        public void ShowUI()
+        public void ShowUI() // TODO: May cause the game to freeze
         {
             if (!showUI)
             {
@@ -233,7 +234,7 @@ namespace BoomBoxCartMod
                 if (boombox?.GetCurrentSongIndex() == songIndexForTime && songIndexForTime != -1 && // Make sure the song has not changed in the meantime
                     boombox?.audioSource?.clip != null && boombox.audioSource.clip.length > 0)
                 {
-                    float actualTime = songTimePerc * boombox.audioSource.clip.length;
+                    float actualTime = Math.Max(0f, Math.Min(songTimePerc * boombox.audioSource.clip.length, boombox.audioSource.clip.length));
 
                     // update local volume
                     //Logger.LogInfo($"Setting time locally to {actualTime}");
@@ -548,8 +549,8 @@ namespace BoomBoxCartMod
                         if (songIndexForTime == songIndex)
                         {
                             // update time for immediate feedback while sliding
-                            float actualTime = newTimePercentage * songLength;
-                            boombox.audioSource.time = actualTime; // Math.Max(0, Math.Min(actualTime, boombox.audioSource.clip.length)) -- Not really necessary
+                            float actualTime = Math.Max(0f, Math.Min(newTimePercentage * songLength, boombox.audioSource.clip.length));
+                            boombox.audioSource.time = actualTime;
 
                             songTimePerc = newTimePercentage;
                         }
@@ -916,6 +917,8 @@ namespace BoomBoxCartMod
 
         private void OnDestroy()
         {
+            showUI = false;
+
             if (backgroundTexture != null) Destroy(backgroundTexture);
             if (buttonTexture != null) Destroy(buttonTexture);
             if (sliderBackgroundTexture != null) Destroy(sliderBackgroundTexture);

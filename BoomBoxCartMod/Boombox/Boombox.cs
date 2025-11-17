@@ -137,7 +137,7 @@ namespace BoomBoxCartMod
                 mutePressed = false;
             }
 
-            if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Handle next song TODO: Fix issues
+            if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient)
             {
                 int currentIndex = GetCurrentSongIndex();
                 CleanupCurrentPlayback();
@@ -193,8 +193,9 @@ namespace BoomBoxCartMod
             audioSource.clip = null;
         }
 
-        public void StartPlayBack() // TODO: Add request to check if a player is using the mod, if the request does not come back, ignore them
+        public void StartPlayBack()
         {
+            Logger.LogInfo("StartPlayBack() called");
             AudioClip clip = currentSong?.GetAudioClip();
 
             if (clip == null)
@@ -236,6 +237,8 @@ namespace BoomBoxCartMod
         public async void RequestSong(string url, int seconds, int requesterId)
         {
             //Logger.LogInfo($"RequestSong RPC received: url={url}, requesterId={requesterId}");
+            if (url == null)
+                return;
 
             /* TODO: Add an option to allow / prohibit duplicates in the queue
 			if (!playbackQueue.Any(entry => entry.Url == url))
@@ -261,10 +264,10 @@ namespace BoomBoxCartMod
             song.StartTime = seconds;
             playbackQueue.Add(song);
 
-            bool isCurrentSong = false;
-            if (currentSong == null) // Start playback
+            //bool isCurrentSong = false;
+            if (currentSong == null) // Start playback if this is the first song added to the queue
             {
-                isCurrentSong = true;
+                //isCurrentSong = true;
                 currentSong = song;
                 isAwaitingSyncPlayback = true;
             }
@@ -275,8 +278,6 @@ namespace BoomBoxCartMod
 
             downloadHelper.EnqueueDownload(url);
             downloadHelper.StartDownloadJob();
-
-            return;
         }
 
         [PunRPC]
@@ -463,6 +464,50 @@ namespace BoomBoxCartMod
             }
         }
 
+        [PunRPC]
+        public void PlayPausePlayback(bool startPlaying, long startTime, int requesterId)
+        {
+            if (playbackQueue.Count == 0)
+            {
+                return;
+            }
+
+            Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId} -- currentSong={currentSong != null}, playbackQueueSize={playbackQueue.Count}");
+
+            if (startPlaying != isPlaying)
+            {
+                string playPauseText;
+                if (startPlaying)
+                {
+                    if (currentSong == null)
+                    {
+                        if (PhotonNetwork.IsMasterClient)
+                        {
+                            photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                        }
+                        return;
+                    }
+                    SetPlaybackTime(GetCurrentTimeMilliseconds());
+                    StartPlayBack();
+                    playPauseText = "Started";
+                }
+                else
+                {
+                    PausePlayBack();
+                    playPauseText = "Paused";
+                }
+                Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
+                //UpdateUIStatus($"{playPauseText} Playback");
+            }
+
+            UpdateUIStatus($"Now playing: {(currentSong?.Url == null ? "Unkown" : currentSong?.Title)}");
+
+            if (MonstersCanHearMusic && EnemyDirector.instance != null && currentSong != null && transform?.position != null)
+            {
+                EnemyDirector.instance.SetInvestigate(transform.position, 5f);
+            }
+        }
+
         public void SetQuality(int level)
         {
             qualityLevel = Mathf.Clamp(level, 0, 4);
@@ -540,50 +585,6 @@ namespace BoomBoxCartMod
             {
                 LoopQueue = loop;
                 //Logger.LogInfo($"Volume looping to {loop} by player {requesterId}");
-            }
-        }
-
-        [PunRPC]
-        public void PlayPausePlayback(bool startPlaying, long startTime, int requesterId)
-        {
-            if (playbackQueue.Count == 0)
-            {
-                return;
-            }
-
-            //Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId} -- currentSong={currentSong != null}, playbackQueueSize={playbackQueue.Count}");
-
-            if (startPlaying != isPlaying)
-            {
-                string playPauseText;
-                if (startPlaying)
-                {
-                    if (currentSong == null)
-                    {
-                        if (PhotonNetwork.IsMasterClient)
-                        {
-                            photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
-                        }
-                        return;
-                    }
-                    SetPlaybackTime(startTime);
-                    StartPlayBack();
-                    playPauseText = "Started";
-                }
-                else
-                {
-                    PausePlayBack();
-                    playPauseText = "Paused";
-                }
-                Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
-                //UpdateUIStatus($"{playPauseText} Playback");
-            }
-
-            UpdateUIStatus($"Now playing: {(currentSong?.Url == null ? "Unkown" : currentSong?.Title)}");
-
-            if (MonstersCanHearMusic && EnemyDirector.instance != null && currentSong != null && transform?.position != null)
-            {
-                EnemyDirector.instance.SetInvestigate(transform.position, 5f);
             }
         }
 

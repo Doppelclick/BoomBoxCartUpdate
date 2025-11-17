@@ -22,17 +22,24 @@ namespace BoomBoxCartMod.Patches
         [HarmonyPostfix]
         static void StartPatch(LevelGenerator __instance)
         {
+            if (__instance.gameObject == null)
+                return;
+
+            Logger.LogInfo("Level started generating, checking with other players if they are using the mod.");
+
             if (Instance.baseListener == null)
             {
                 Instance.baseListener = __instance.gameObject.AddComponent<BaseListener>(); // TODO: Maybe do this differently
             }
 
-            Logger.LogInfo("Level started generating, checking with other players if they are using the mod.");
+            if (Instance.baseListener == null)
+                return;
+
             Instance.baseListener.GetAllModUsers().Clear();
+            Instance.modDisabled = false;
 
             if (PhotonNetwork.IsMasterClient)
             {
-                Instance.modDisabled = false;
                 BaseListener.photonView?.RPC("ModFeedbackCheck", RpcTarget.OthersBuffered, BoomBoxCartMod.modVersion, PhotonNetwork.LocalPlayer.ActorNumber);
                 Instance.baseListener.GetAllModUsers().Add(PhotonNetwork.LocalPlayer.ActorNumber);
             }

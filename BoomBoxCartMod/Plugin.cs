@@ -61,6 +61,5 @@ namespace BoomBoxCartMod
 		{
 			YoutubeDL.CleanUp();
         }
-
     }
 }
