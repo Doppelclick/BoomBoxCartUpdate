@@ -498,7 +498,7 @@ namespace BoomBoxCartMod
                 float timeDisplayPercentage = 0f;
                 string songLengthString = "??";
 
-                bool audioAvailable = boombox != null && boombox.audioSource != null && boombox.audioSource.clip != null;
+                bool audioAvailable = boombox != null && boombox.audioSource?.clip != null;
 
                 if (audioAvailable)
                 {
