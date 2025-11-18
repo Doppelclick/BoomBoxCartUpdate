@@ -8,7 +8,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>BoomBoxCartMod</RootNamespace>
-    <AssemblyName>BoomBoxCartMod</AssemblyName>
+    <AssemblyName>BoomBoxCartUpgradeMod</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>12.0</LangVersion>
     <FileAlignment>512</FileAlignment>

@@ -5,7 +5,7 @@ Has volume and quality sliders as well to configure the music to your liking. On
 Boombox UI at any time, and everyone (with the mod installed) can hear the songs you play too!
 
 Current websites you can play audio from:
- - Youtube
+ - Youtube (Music)
  - SoundCloud
  - Rutube
  - music.yandex
@@ -27,15 +27,14 @@ Reach out to me (link at the end) for issues with any service listed here, or su
 </ol>
 <p>Known Issues:</p>
 <ul>
-    <li>When the menu is opened the camera still moves</li>
+    <li>When the menu is opened you can still move and click through it</li>
     <li>Singleplayer does NOT work at all. Clicking "Host Game" and playing solo works though!</li>
     <li>Small stutter when audio is downloaded (longer video, longer stutter)</li>
 </ul>
 
 <p>Possible Future Features:</p>
 <ul>
-    <li>A config file to configure a few values that some people might want to</li>
-    <li>A global mute option in settings to mute all boombox audio if you can't stand your lobby</li>
+    <li>None right now, suggest some maybe!</li>
 </ul>
 
 ## Credits
@@ -52,3 +51,4 @@ Also big thanks to <a href="https://thunderstore.io/c/repo/p/SteamBlizzard/">Dan
 ## Contact
 
 <p>Feel free to reach out to me on discord @doppelclick</p>
+<p>Or in the repo modding community discord (https://discord.com/invite/vPJtKhYAFe) in this thread: https://discord.com/channels/1344557689979670578/1439361913933795489</p>

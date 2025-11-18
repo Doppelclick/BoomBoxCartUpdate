@@ -169,7 +169,7 @@ namespace BoomBoxCartMod
             }
         }
 
-        public void ShowUI() // TODO: May cause the game to freeze
+        public void ShowUI()
         {
             if (!showUI)
             {

@@ -1,4 +1,8 @@
 # Changelog
+## 1.2.5
+ - Fixed playback on non-master-clients THANKS TO Omniscye
+ - Fixed some minor issues
+ - Better playback sync
 ## 1.2.4
  - Added Global Mute Keybind
  - Added Ability to dismiss queue, with config option to only allow the master client to do so

@@ -177,9 +177,10 @@ namespace BoomBoxCartMod
             }
         }
 
-        public static long GetCurrentTimeMilliseconds()
+        public static long GetCurrentTimeMilliseconds() // TODO: Check
         {
-            return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
+            return PhotonNetwork.ServerTimestamp;
+            //return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         }
 
         private float monsterAttractTimer = 0f;
@@ -214,7 +215,7 @@ namespace BoomBoxCartMod
 
         public void StartPlayBack()
         {
-            Logger.LogInfo("StartPlayBack() called");
+            //Logger.LogInfo("StartPlayBack() called");
             AudioClip clip = currentSong?.GetAudioClip();
 
             if (clip == null)
@@ -233,12 +234,12 @@ namespace BoomBoxCartMod
 
             CleanupCurrentPlayback(); // Probably unnecessary
             audioSource.clip = clip;
+            //audioSource.time = 0;
             SetQuality(qualityLevel);
             UpdateAudioRangeBasedOnVolume(audioSource.volume);
             audioSource.Play();
             isPlaying = true;
             //Logger.LogInfo($"StartPlayBack() finished, clip={audioSource.clip != null} volume={audioSource.volume} playing={audioSource.isPlaying}");
-            //=> StartPlayBack() finished, clip=True volume=0.15 playing=True
         }
 
         public void PausePlayBack()
@@ -292,7 +293,6 @@ namespace BoomBoxCartMod
                 isAwaitingSyncPlayback = true;
             }
 
-
             if (!PhotonNetwork.IsMasterClient)
                 return;
 
@@ -309,7 +309,8 @@ namespace BoomBoxCartMod
             //Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queue={queue}");
 
             playbackQueue = queue;
-            currentSong = playbackQueue.ElementAt(currentIndex);
+            if (currentIndex > 0 && currentIndex < playbackQueue.Count)
+                currentSong = playbackQueue.ElementAt(currentIndex);
 
             foreach (AudioEntry song in playbackQueue)
             {
@@ -320,16 +321,6 @@ namespace BoomBoxCartMod
                     DownloadHelper.songTitles[title] = title;
                 }
             }
-
-            /* TODO: Add a way to download songs independantly from master client for late joins
-            int downloadStartIndex = GetCurrentSongIndex();
-            if (currentSongTimeLeft > 10000) // Do not bother trying to download the current song, if it has less than 10 seconds left to play
-            {
-                downloadStartIndex += 1;
-            }
-
-            downloadStartIndex %= playbackQueue.Count;
-			*/
         }
 
 
@@ -455,11 +446,11 @@ namespace BoomBoxCartMod
 
             if (GetCurrentSongIndex() == newSongIndex)
             {
-                SetPlaybackTime(startTime);
                 if (!isPlaying || !audioSource.isPlaying) // TODO: Possibly do not start playing the song when the time of the song is changed, as this should be handled by PlayPausePlayback
                 {
                     StartPlayBack();
                 }
+                SetPlaybackTime(startTime);
                 return;
             }
             else if (isPlaying || audioSource.isPlaying) // Changing to new song
@@ -513,13 +504,14 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId} -- currentSong={currentSong != null}, playbackQueueSize={playbackQueue.Count}");
+            //Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId} -- currentSong={currentSong != null}, playbackQueueSize={playbackQueue.Count}");
 
             if (startPlaying != isPlaying)
             {
                 string playPauseText;
                 if (startPlaying)
                 {
+                    isAwaitingSyncPlayback = false;
                     if (currentSong == null)
                     {
                         if (PhotonNetwork.IsMasterClient)
@@ -534,8 +526,8 @@ namespace BoomBoxCartMod
                         }
                         return;
                     }
-                    SetPlaybackTime(startTime);
                     StartPlayBack();
+                    SetPlaybackTime(startTime);
                     playPauseText = "Started";
                 }
                 else
@@ -652,7 +644,7 @@ namespace BoomBoxCartMod
 
             base.OnPlayerEnteredRoom(newPlayer);
 
-            if (PhotonNetwork.IsMasterClient && isPlaying && currentSong != null && currentSong.Url != null)
+            if (PhotonNetwork.IsMasterClient)
             {
                 Logger.LogInfo($"New player {newPlayer.ActorNumber} joined - syncing current playback state");
 
@@ -663,7 +655,7 @@ namespace BoomBoxCartMod
                     playbackQueue,
                     (long)Math.Round((audioSource.clip.length - audioSource.time) * 1000f),
                     PhotonNetwork.LocalPlayer.ActorNumber
-                ); // Syncs and downloads queue
+                );
 
                 photonView.RPC(
                     "UpdateLooping",
@@ -677,6 +669,26 @@ namespace BoomBoxCartMod
                     audioSource.volume / maxVolumeLimit,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
+
+                if (isPlaying && currentSong?.Url != null && audioSource?.clip != null)
+                {
+                    if (audioSource.time + 10 < audioSource.clip.length) // Not worth starting the download of the next song otherwise
+                    {
+                        photonView.RPC(
+                            "StartDownloadAndSync",
+                            RpcTarget.All,
+                            currentSong.Url,
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
+                    }
+                    int nextIndex = (GetCurrentSongIndex() + 1) % playbackQueue.Count;
+                    photonView.RPC(
+                        "StartDownloadAndSync",
+                        RpcTarget.All,
+                        nextIndex,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                }
             }
         }
 
