@@ -64,6 +64,7 @@ namespace BoomBoxCartMod
             audioSource.dopplerLevel = 0f;
             audioSource.reverbZoneMix = 1f;
             audioSource.spatialize = true;
+            audioSource.loop = false; // Handled in Update() since we are using a queue
             audioSource.mute = audioMuted;
             lowPassFilter = gameObject.AddComponent<AudioLowPassFilter>();
             lowPassFilter.enabled = false;
@@ -109,7 +110,7 @@ namespace BoomBoxCartMod
                 //Logger.LogInfo("Stopped premature audio playback while waiting for sync");
             }
 
-            if (isPlaying && MonstersCanHearMusic && EnemyDirector.instance != null)
+            if (PhotonNetwork.IsMasterClient && isPlaying && MonstersCanHearMusic && EnemyDirector.instance != null)
             {
                 monsterAttractTimer += Time.deltaTime;
                 if (monsterAttractTimer >= monsterAttractInterval)
@@ -137,23 +138,41 @@ namespace BoomBoxCartMod
                 mutePressed = false;
             }
 
-            if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient)
+            if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Song finished playing
             {
                 int currentIndex = GetCurrentSongIndex();
                 CleanupCurrentPlayback();
 
                 if (currentIndex == -1) // Current song not found in queue
                 {
-                    photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "SyncPlayback",
+                        RpcTarget.All,
+                        -1,
+                        Boombox.GetCurrentTimeMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
                 else if (currentIndex + 1 >= playbackQueue.Count) // Current song is at end of queue, stop playback or loop to the start if loopQueue is enabled
                 {
-                    photonView.RPC("SyncPlayback", RpcTarget.All, loopQueue ? 0 : -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "SyncPlayback",
+                        RpcTarget.All,
+                        loopQueue ? 0 : -1,
+                        Boombox.GetCurrentTimeMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                     return;
                 }
                 else // Middle of queue, start playing the next song
                 {
-                    photonView.RPC("SyncPlayback", RpcTarget.All, currentIndex + 1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "SyncPlayback",
+                        RpcTarget.All,
+                        currentIndex + 1,
+                        Boombox.GetCurrentTimeMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
             }
         }
@@ -212,13 +231,14 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            CleanupCurrentPlayback(); // Probably unnescessary
+            CleanupCurrentPlayback(); // Probably unnecessary
             audioSource.clip = clip;
-            audioSource.loop = false; // Handled in Update() since we are using a queue
             SetQuality(qualityLevel);
             UpdateAudioRangeBasedOnVolume(audioSource.volume);
             audioSource.Play();
             isPlaying = true;
+            //Logger.LogInfo($"StartPlayBack() finished, clip={audioSource.clip != null} volume={audioSource.volume} playing={audioSource.isPlaying}");
+            //=> StartPlayBack() finished, clip=True volume=0.15 playing=True
         }
 
         public void PausePlayBack()
@@ -320,7 +340,11 @@ namespace BoomBoxCartMod
             {
                 if (PhotonNetwork.IsMasterClient && !Instance.MasterClientDismissQueue.Value) // Only depends on the host's config setting
                 {
-                    photonView.RPC("DismissQueue", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "DismissQueue",
+                        RpcTarget.All,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
                 return;
             }
@@ -388,12 +412,24 @@ namespace BoomBoxCartMod
                         index %= playbackQueue.Count; // currentSongIndex == index
                         if (currentIndex < playbackQueue.Count || loopQueue) // If the song was not the last in the queue or we want to loop
                         {
-                            photonView.RPC("SyncPlayback", RpcTarget.All, index, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                            photonView.RPC(
+                                "SyncPlayback",
+                                RpcTarget.All,
+                                index,
+                                Boombox.GetCurrentTimeMilliseconds(),
+                                PhotonNetwork.LocalPlayer.ActorNumber
+                            );
                             return;
                         }
                     }
 
-                    photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "SyncPlayback",
+                        RpcTarget.All,
+                        -1,
+                        Boombox.GetCurrentTimeMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
             }
         }
@@ -439,7 +475,12 @@ namespace BoomBoxCartMod
 
             if (currentSong?.Url == null) // Should never happen
             {
-                photonView.RPC("RemoveQueueItem", RpcTarget.All, newSongIndex, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView.RPC(
+                    "RemoveQueueItem",
+                    RpcTarget.All,
+                    newSongIndex,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
                 return;
             }
 
@@ -483,11 +524,17 @@ namespace BoomBoxCartMod
                     {
                         if (PhotonNetwork.IsMasterClient)
                         {
-                            photonView.RPC("SyncPlayback", RpcTarget.All, -1, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                            photonView.RPC(
+                                "SyncPlayback",
+                                RpcTarget.All,
+                                -1,
+                                Boombox.GetCurrentTimeMilliseconds(),
+                                PhotonNetwork.LocalPlayer.ActorNumber
+                            );
                         }
                         return;
                     }
-                    SetPlaybackTime(GetCurrentTimeMilliseconds());
+                    SetPlaybackTime(startTime);
                     StartPlayBack();
                     playPauseText = "Started";
                 }
@@ -502,7 +549,9 @@ namespace BoomBoxCartMod
 
             UpdateUIStatus($"Now playing: {(currentSong?.Url == null ? "Unkown" : currentSong?.Title)}");
 
-            if (MonstersCanHearMusic && EnemyDirector.instance != null && currentSong != null && transform?.position != null)
+            if (PhotonNetwork.IsMasterClient && MonstersCanHearMusic
+                && EnemyDirector.instance != null && currentSong != null && transform?.position != null
+            )
             {
                 EnemyDirector.instance.SetInvestigate(transform.position, 5f);
             }
@@ -607,10 +656,27 @@ namespace BoomBoxCartMod
             {
                 Logger.LogInfo($"New player {newPlayer.ActorNumber} joined - syncing current playback state");
 
-                photonView.RPC("SyncQueue", newPlayer, GetCurrentSongIndex(), playbackQueue, (long)Math.Round((audioSource.clip.length - audioSource.time) * 1000f), PhotonNetwork.LocalPlayer.ActorNumber); // Syncs and downloads queue
-                                                                                                                                                                                                             //photonView.RPC("UpdateQuality", newPlayer, qualityLevel, PhotonNetwork.LocalPlayer.ActorNumber);
-                photonView.RPC("UpdateLooping", newPlayer, LoopQueue, PhotonNetwork.LocalPlayer.ActorNumber);
-                //photonView.RPC("UpdateVolume", newPlayer, Buffered, normalizedVolume, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView.RPC(
+                    "SyncQueue",
+                    newPlayer,
+                    GetCurrentSongIndex(),
+                    playbackQueue,
+                    (long)Math.Round((audioSource.clip.length - audioSource.time) * 1000f),
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                ); // Syncs and downloads queue
+
+                photonView.RPC(
+                    "UpdateLooping",
+                    newPlayer,
+                    LoopQueue,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
+                photonView.RPC(
+                    "UpdateVolume",
+                    newPlayer,
+                    audioSource.volume / maxVolumeLimit,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
             }
         }
 

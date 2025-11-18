@@ -35,6 +35,7 @@ namespace BoomBoxCartMod
         public static Dictionary<string, HashSet<int>> downloadErrors = new Dictionary<string, HashSet<int>>();
 
         private const float DOWNLOAD_TIMEOUT = 40f; // 40 seconds timeout for downloads
+        private const float TIMEOUT_THRESHOLD = 5f; // 5 seconds to wait after partial consensus to finish download process
         private Dictionary<string, Coroutine> timeoutCoroutines = new Dictionary<string, Coroutine>();
 
         private Queue<string> downloadJobQueue = new Queue<string>();
@@ -285,7 +286,12 @@ namespace BoomBoxCartMod
                 downloadErrors[url] = new HashSet<int>();
 
             // RPC call to start the download/sync process on ALL clients
-            photonView.RPC("StartDownloadAndSync", RpcTarget.All, url, PhotonNetwork.LocalPlayer.ActorNumber);
+            photonView.RPC(
+                "StartDownloadAndSync",
+                RpcTarget.All,
+                url,
+                PhotonNetwork.LocalPlayer.ActorNumber
+            );
 
             // Start timeout coroutine
             timeoutCoroutines[requestId] = StartCoroutine(DownloadTimeoutCoroutine(requestId, url));
@@ -352,18 +358,32 @@ namespace BoomBoxCartMod
                 if (downloadsReady.ContainsKey(url) && downloadsReady[url].Count > 0)
                 {
                     string timeoutMessage = $"Some players timed out. Continuing playback for {downloadsReady[url].Count} players.";
-                    photonView.RPC("NotifyPlayersOfErrors", RpcTarget.All, timeoutMessage);
+                    photonView.RPC(
+                        "NotifyPlayersOfErrors",
+                        RpcTarget.All,
+                        timeoutMessage
+                    );
 
                     // initiate playback with the master client as requester to unblock the system
                     if (boomboxParent.isAwaitingSyncPlayback && boomboxParent.currentSong?.Url == url)
                     {
                         boomboxParent.isAwaitingSyncPlayback = false;
-                        photonView.RPC("PlayPausePlayback", RpcTarget.All, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView.RPC(
+                            "PlayPausePlayback",
+                            RpcTarget.All,
+                            true,
+                            Boombox.GetCurrentTimeMilliseconds(),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
                     }
                 }
                 else
                 {
-                    photonView.RPC("NotifyPlayersOfErrors", RpcTarget.All, "Download timed out for all players.");
+                    photonView.RPC(
+                        "NotifyPlayersOfErrors",
+                        RpcTarget.All,
+                        "Download timed out for all players."
+                    );
                 }
 
                 currentDownloadUrl = null;
@@ -389,13 +409,23 @@ namespace BoomBoxCartMod
 
             if (downloadedClips.ContainsKey(url))
             {
-                photonView.RPC("ReportDownloadComplete", RpcTarget.MasterClient, url, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView.RPC(
+                    "ReportDownloadComplete",
+                    RpcTarget.MasterClient,
+                    url,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
                 return;
             }
 
             if (await StartAudioDownload(url))
             {
-                photonView.RPC("ReportDownloadComplete", RpcTarget.MasterClient, url, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView.RPC(
+                    "ReportDownloadComplete",
+                    RpcTarget.MasterClient,
+                    url,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
             }
         }
 
@@ -413,7 +443,13 @@ namespace BoomBoxCartMod
                 PhotonNetwork.CurrentRoom.Players.TryGetValue(actorNumber, out Player targetPlayer);
                 if (!downloadsReady[url].Contains(actorNumber) && targetPlayer != null)
                 {
-                    photonView.RPC("PlayPausePlayback", targetPlayer, true, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "PlayPausePlayback",
+                        targetPlayer,
+                        true,
+                        (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boomboxParent.audioSource.time * 1000f) - 10000)),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
             }
 
@@ -431,8 +467,6 @@ namespace BoomBoxCartMod
             float waitTime = 0.1f;
 
             float? partialConsensusStartTime = null;
-            const float timeoutThreshold = 5.0f;
-
 
             // Wait until either all players are accounted for (ready + error = total) 
             // or we have at least one player ready and some have errors
@@ -461,7 +495,7 @@ namespace BoomBoxCartMod
                 }
                 else
                 {
-                    timeOutReached = (Time.time - partialConsensusStartTime.Value) >= timeoutThreshold;
+                    timeOutReached = (Time.time - partialConsensusStartTime.Value) >= TIMEOUT_THRESHOLD;
                 }
 
 
@@ -526,7 +560,12 @@ namespace BoomBoxCartMod
                     var title = await YoutubeDL.DownloadAudioTitleAsync(url);
 
                     songTitles[url] = title;
-                    boomboxParent.photonView.RPC("SetSongTitle", RpcTarget.All, url, title);
+                    boomboxParent.photonView.RPC(
+                        "SetSongTitle",
+                        RpcTarget.All,
+                        url,
+                        title
+                    );
                     //Logger.LogInfo($"Set song title for url: {url} to {title}");
 
                     var filePath = await YoutubeDL.DownloadAudioAsync(url, title);
@@ -551,7 +590,13 @@ namespace BoomBoxCartMod
                     }
 
                     // Report download error to other players
-                    boomboxParent.photonView.RPC("ReportDownloadError", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber, url, ex.Message);
+                    boomboxParent.photonView.RPC(
+                        "ReportDownloadError",
+                        RpcTarget.All,
+                        PhotonNetwork.LocalPlayer.ActorNumber,
+                        url,
+                        ex.Message
+                    );
 
                     return false;
                 }
@@ -646,7 +691,13 @@ namespace BoomBoxCartMod
 
                 // Download coroutine will stop if the downloadQueue is empty
 
-                photonView.RPC("ReportDownloadError", RpcTarget.All, PhotonNetwork.LocalPlayer.ActorNumber, urlToReport, "Download cancelled.");
+                photonView.RPC(
+                    "ReportDownloadError",
+                    RpcTarget.All, 
+                    PhotonNetwork.LocalPlayer.ActorNumber, 
+                    urlToReport,
+                    "Download cancelled."
+                );
 
                 Logger.LogInfo("Download was force cancelled by user.");
             }

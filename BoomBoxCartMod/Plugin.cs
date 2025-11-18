@@ -50,7 +50,7 @@ namespace BoomBoxCartMod
 			harmony.PatchAll();
 
 			OpenUIKey = Config.Bind("General", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
-            GlobalMuteKey = Config.Bind("General", "GlobalMuteKey", Key.M, "Key to mute all playback."); // TODO: Possibly make default value Key.None
+            GlobalMuteKey = Config.Bind("General", "GlobalMuteKey", Key.M, "Key to mute all playback.");
             MasterClientDismissQueue = Config.Bind("General", "MasterClientDismissQueue", true, "Allow only the master client to dismiss the queue.");
             UseTimeStampOnce = Config.Bind("General", "UseTimeStampOnce", false, "Only use the timestamp provided with a Url the first time it is played.");
             

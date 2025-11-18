@@ -569,7 +569,13 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex(), (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) - 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC(
+                            "SyncPlayback",
+                            RpcTarget.All,
+                            boombox.GetCurrentSongIndex(),
+                            (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) - 10000)),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
                     }
                 }
 
@@ -587,7 +593,13 @@ namespace BoomBoxCartMod
                     {
                         lastUrl = cleanedUrl;
                         // Use RequestSong to add a song to the queue, and initiate its download. It will start playing if the queue was empty before
-                        photonView?.RPC("RequestSong", RpcTarget.All, cleanedUrl, seconds, PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC(
+                            "RequestSong",
+                            RpcTarget.All,
+                            cleanedUrl,
+                            seconds,
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
                         GUI.FocusControl(null);
                     }
                 }
@@ -600,7 +612,13 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource != null)
                     {
-                        photonView?.RPC("PlayPausePlayback", RpcTarget.All, !boombox.isPlaying, (long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(boombox.audioSource.time * 1000f)), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC(
+                            "PlayPausePlayback",
+                            RpcTarget.All,
+                            !boombox.isPlaying,
+                            (long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(boombox.audioSource.time * 1000f)),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
                     }
                 }
 
@@ -610,7 +628,13 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex(), (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)), PhotonNetwork.LocalPlayer.ActorNumber);
+                        photonView?.RPC(
+                            "SyncPlayback",
+                            RpcTarget.All,
+                            boombox.GetCurrentSongIndex(),
+                            (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
                     }
                 }
 
@@ -618,7 +642,9 @@ namespace BoomBoxCartMod
 
 
                 // Download status information for current song
-                if (boombox != null && boombox.downloadHelper.IsProcessingQueue() && boombox.currentSong?.GetAudioClip() == null && boombox.downloadHelper.GetCurrentDownloadUrl() != null)
+                if (boombox != null && boombox.downloadHelper.IsProcessingQueue()
+                    && boombox.currentSong?.GetAudioClip() == null && boombox.downloadHelper.GetCurrentDownloadUrl() != null
+                )
                 {
                     GUILayout.Space(10);
                     GUILayout.Label("Download in progress...", statusStyle);
@@ -752,7 +778,12 @@ namespace BoomBoxCartMod
                 bool newLoop = GUILayout.Toggle(loop, "Loop queue");
                 if (newLoop != loop && PhotonNetwork.IsMasterClient)
                 {
-                    photonView.RPC("UpdateLooping", RpcTarget.All, newLoop, PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView.RPC(
+                        "UpdateLooping",
+                        RpcTarget.All,
+                        newLoop,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                     /*
                     boombox.LoopQueue = newLoop;
                     // Logger.LogInfo($"Looping Queue: {newLoop}");
@@ -803,7 +834,11 @@ namespace BoomBoxCartMod
             // Dismiss Queue
             if (GUILayout.Button("Dismiss Queue", smallButtonStyle))
             {
-                photonView.RPC("DismissQueue", (PhotonNetwork.IsMasterClient ? RpcTarget.All : RpcTarget.MasterClient), PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView.RPC(
+                    "DismissQueue",
+                    (PhotonNetwork.IsMasterClient ? RpcTarget.All : RpcTarget.MasterClient),
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
                 lastUrl = null;
             }
             GUILayout.EndHorizontal();
@@ -834,7 +869,13 @@ namespace BoomBoxCartMod
                         // 1. Song Title (takes up most of the space)
                         if (GUILayout.Button(displayText, styleToUse, GUILayout.ExpandWidth(true), GUILayout.Height(32)) &&! isCurrent)
                         {
-                            photonView.RPC("SyncPlayback", RpcTarget.All, i, Boombox.GetCurrentTimeMilliseconds(), PhotonNetwork.LocalPlayer.ActorNumber);
+                            photonView.RPC(
+                                "SyncPlayback",
+                                RpcTarget.All,
+                                i,
+                                Boombox.GetCurrentTimeMilliseconds(),
+                                PhotonNetwork.LocalPlayer.ActorNumber
+                            );
                         }
 
                         // Add Control Buttons for all items except the currently playing song
@@ -846,7 +887,13 @@ namespace BoomBoxCartMod
                                 if (GUILayout.Button("▲", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
                                     // RPC Call to Boombox to move song up
-                                    photonView.RPC("MoveQueueItem", RpcTarget.All, i, i - 1, PhotonNetwork.LocalPlayer.ActorNumber);
+                                    photonView.RPC(
+                                        "MoveQueueItem",
+                                        RpcTarget.All,
+                                        i,
+                                        i - 1,
+                                        PhotonNetwork.LocalPlayer.ActorNumber
+                                    );
                                 }
                             }
                             else
@@ -861,7 +908,13 @@ namespace BoomBoxCartMod
                                 if (GUILayout.Button("▼", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
                                     // RPC Call to Boombox to move song down
-                                    photonView.RPC("MoveQueueItem", RpcTarget.All, i, i + 1, PhotonNetwork.LocalPlayer.ActorNumber);
+                                    photonView.RPC(
+                                        "MoveQueueItem",
+                                        RpcTarget.All,
+                                        i,
+                                        i + 1,
+                                        PhotonNetwork.LocalPlayer.ActorNumber
+                                    );
                                 }
                             }
                             else
@@ -874,7 +927,12 @@ namespace BoomBoxCartMod
                             if (GUILayout.Button("X", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                             {
                                 // RPC Call to Boombox to remove song
-                                photonView.RPC("RemoveQueueItem", RpcTarget.All, i, PhotonNetwork.LocalPlayer.ActorNumber);
+                                photonView.RPC(
+                                    "RemoveQueueItem",
+                                    RpcTarget.All,
+                                    i,
+                                    PhotonNetwork.LocalPlayer.ActorNumber
+                                );
                             }
                         }
 
