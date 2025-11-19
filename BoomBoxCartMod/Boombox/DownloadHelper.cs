@@ -467,7 +467,6 @@ namespace BoomBoxCartMod
 
         private IEnumerator WaitForPlayersReadyOrFailed(string url)
         {
-            Logger.LogInfo(Instance.baseListener == null);
             int totalPlayers = Instance.baseListener.GetAllModUsers().Count;
             int readyCount = 0;
             int errorCount = 0;
@@ -515,7 +514,7 @@ namespace BoomBoxCartMod
                 yield return new WaitForSeconds(waitTime);
             }
 
-            Logger.LogInfo($"n. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers} for url: {url}");
+            Logger.LogInfo($"Ready to proceed with playback. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers} for url: {url}");
         }
 
         public static async Task<AudioClip> GetAudioClipAsync(string filePath)

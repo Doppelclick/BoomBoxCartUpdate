@@ -270,7 +270,7 @@ namespace BoomBoxCartMod
         [PunRPC]
         public async void RequestSong(string url, int seconds, int requesterId)
         {
-            //Logger.LogInfo($"RequestSong RPC received: url={url}, sedonds={seconds}, requesterId={requesterId}");
+            Logger.LogInfo($"RequestSong RPC received: url={url}, sedonds={seconds}, requesterId={requesterId}");
             if (url == null)
                 return;
 

@@ -16,7 +16,8 @@ namespace BoomBoxCartMod
         private static ManualLogSource Logger => Instance.logger;
 
         public PhotonView photonView;
-        public static bool showUI = false;
+        public static bool anyUISHown = false;
+        public bool showUI = false;
         private string urlInput = "";
 
         // Time
@@ -179,6 +180,7 @@ namespace BoomBoxCartMod
                     return;
                 }
 
+                anyUISHown = true;
                 showUI = true;
 
                 previousLockMode = Cursor.lockState;
@@ -307,6 +309,7 @@ namespace BoomBoxCartMod
         {
             if (showUI)
             {
+                anyUISHown = false;
                 showUI = false;
 
                 Cursor.lockState = previousLockMode;
@@ -993,6 +996,7 @@ namespace BoomBoxCartMod
         {
             if (showUI)
             {
+                anyUISHown = false;
                 showUI = false;
 
                 Cursor.lockState = previousLockMode;

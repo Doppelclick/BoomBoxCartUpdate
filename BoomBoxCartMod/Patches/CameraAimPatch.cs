@@ -19,7 +19,7 @@ namespace BoomBoxCartMod.Patches
         [HarmonyPrefix]
         static bool PatchPlayerAim(CameraAim __instance)
         {
-            return !(BoomboxUI.showUI && !Instance.modDisabled); // Prevent interacting when in UI
+            return !(BoomboxUI.anyUISHown && !Instance.modDisabled); // Prevent interacting when in UI
         }
     }
 }
