@@ -21,6 +21,14 @@ namespace BoomBoxCartMod.Util
             return modList;
         }
 
+        public void AddModUser(int id)
+        {
+            if (!modList.Contains(id))
+            {
+                modList.Add(id);
+            }
+        }
+
         private void Awake()
         {
             photonView = GetComponent<PhotonView>();
@@ -33,7 +41,7 @@ namespace BoomBoxCartMod.Util
             {
                 if (modVersion == BoomBoxCartMod.modVersion && Instance.baseListener != null)
                 {
-                    Instance.baseListener.GetAllModUsers().Add(actorNumber);
+                    Instance.baseListener.AddModUser(actorNumber);
                     Instance.logger?.LogInfo($"Player {actorNumber} is using a compatible version of the mod.");
                 }
                 return;

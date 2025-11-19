@@ -319,7 +319,7 @@ namespace BoomBoxCartMod
             if (requesterId != PhotonNetwork.MasterClient.ActorNumber) // Should not be necessary, but why not
                 return;
 
-            //Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queue={queue}");
+            Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queueSize={queue.Count}");
 
             playbackQueue = queue;
             if (currentIndex > 0 && currentIndex < playbackQueue.Count)

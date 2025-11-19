@@ -46,7 +46,7 @@ namespace BoomBoxCartMod.Patches
                     BoomBoxCartMod.modVersion,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
-                Instance.baseListener.GetAllModUsers().Add(PhotonNetwork.LocalPlayer.ActorNumber);
+                Instance.baseListener.AddModUser(PhotonNetwork.LocalPlayer.ActorNumber);
             }
         }
     }
