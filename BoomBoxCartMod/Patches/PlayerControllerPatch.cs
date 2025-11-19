@@ -48,7 +48,7 @@ namespace BoomBoxCartMod.Patches
 
         [HarmonyPatch("Update")]
 		[HarmonyPostfix]
-		static void PatchPlayerControllerUpdate(PlayerController __instance)
+		static void PatchPlayerControllerUpdate(PlayerController __instance) // Could prevent player from grabbing the cart here when in ui, but would not stop other interactions
 		{
 			if (Instance.modDisabled)
 				return;

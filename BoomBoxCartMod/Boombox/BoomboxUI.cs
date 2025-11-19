@@ -234,14 +234,20 @@ namespace BoomBoxCartMod
                 if (boombox?.GetCurrentSongIndex() == songIndexForTime && songIndexForTime != -1 && // Make sure the song has not changed in the meantime
                     boombox?.audioSource?.clip != null && boombox.audioSource.clip.length > 0)
                 {
-                    float actualTime = Math.Max(0f, Math.Min(songTimePerc * boombox.audioSource.clip.length, boombox.audioSource.clip.length));
+                    float actualTime = Math.Max(0f, Math.Min(songTimePerc * boombox.audioSource.clip.length, boombox.audioSource.clip.length - 0.05f));
 
                     // update local volume
                     //Logger.LogInfo($"Setting time locally to {actualTime}");
                     boombox.audioSource.time = actualTime;
 
                     // update volume for all others too
-                    photonView?.RPC("SyncPlayback", RpcTarget.All, boombox.GetCurrentSongIndex(), (long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(actualTime * 1000f)), PhotonNetwork.LocalPlayer.ActorNumber);
+                    photonView?.RPC(
+                        "SyncPlayback",
+                        RpcTarget.All,
+                        boombox.GetCurrentSongIndex(),
+                        boombox.GetRelativePlaybackMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
             }
         }
@@ -262,7 +268,12 @@ namespace BoomBoxCartMod
                 }
 
                 // update volume for all others too
-                photonView?.RPC("UpdateVolume", RpcTarget.AllBuffered, normalizedVolume, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView?.RPC(
+                    "UpdateVolume",
+                    RpcTarget.AllBuffered,
+                    normalizedVolume,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
             }
         }
 
@@ -282,7 +293,12 @@ namespace BoomBoxCartMod
 
                 /* Should not be a shared value really
                 // update qual for others too
-                photonView?.RPC("UpdateQuality", RpcTarget.AllBuffered, qualityLevel, PhotonNetwork.LocalPlayer.ActorNumber);
+                photonView?.RPC(
+                    "UpdateQuality",
+                    RpcTarget.AllBuffered,
+                    qualityLevel,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
                 */
             }
         }
@@ -549,7 +565,7 @@ namespace BoomBoxCartMod
                         if (songIndexForTime == songIndex)
                         {
                             // update time for immediate feedback while sliding
-                            float actualTime = Math.Max(0f, Math.Min(newTimePercentage * songLength, boombox.audioSource.clip.length));
+                            float actualTime = Math.Max(0f, Math.Min(newTimePercentage * songLength, boombox.audioSource.clip.length - 0.05f));
                             boombox.audioSource.time = actualTime;
 
                             songTimePerc = newTimePercentage;
@@ -573,7 +589,7 @@ namespace BoomBoxCartMod
                             "SyncPlayback",
                             RpcTarget.All,
                             boombox.GetCurrentSongIndex(),
-                            (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) - 10000)),
+                            boombox.GetRelativePlaybackMilliseconds() + 10000L,
                             PhotonNetwork.LocalPlayer.ActorNumber
                         );
                     }
@@ -616,7 +632,7 @@ namespace BoomBoxCartMod
                             "PlayPausePlayback",
                             RpcTarget.All,
                             !boombox.isPlaying,
-                            (long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(boombox.audioSource.time * 1000f)),
+                            boombox.GetRelativePlaybackMilliseconds(),
                             PhotonNetwork.LocalPlayer.ActorNumber
                         );
                     }
@@ -632,7 +648,7 @@ namespace BoomBoxCartMod
                             "SyncPlayback",
                             RpcTarget.All,
                             boombox.GetCurrentSongIndex(),
-                            (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boombox.audioSource.time * 1000f) + 10000)),
+                            boombox.GetRelativePlaybackMilliseconds() - 10000L,
                             PhotonNetwork.LocalPlayer.ActorNumber
                         );
                     }
@@ -975,7 +991,13 @@ namespace BoomBoxCartMod
 
         private void OnDestroy()
         {
-            showUI = false;
+            if (showUI)
+            {
+                showUI = false;
+
+                Cursor.lockState = previousLockMode;
+                Cursor.visible = previousCursorVisible;
+            }
 
             if (backgroundTexture != null) Destroy(backgroundTexture);
             if (buttonTexture != null) Destroy(buttonTexture);

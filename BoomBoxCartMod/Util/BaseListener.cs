@@ -34,17 +34,26 @@ namespace BoomBoxCartMod.Util
                 if (modVersion == BoomBoxCartMod.modVersion && Instance.baseListener != null)
                 {
                     Instance.baseListener.GetAllModUsers().Add(actorNumber);
-                    Instance.logger?.LogInfo($"Player ({actorNumber}) is using a compatible version of the mod.");
+                    Instance.logger?.LogInfo($"Player {actorNumber} is using a compatible version of the mod.");
                 }
                 return;
             }
             else
             {
-                if (modVersion != BoomBoxCartMod.modVersion)
+                Instance.modDisabled = modVersion != BoomBoxCartMod.modVersion;
+                Instance.logger.LogInfo($"Mod {(Instance.modDisabled ? "DISABLED" : "ENABLED")}. Current version: {BoomBoxCartMod.modVersion}, requested: {modVersion}");
+                photonView?.RPC(
+                    "ModFeedbackCheck",
+                    RpcTarget.MasterClient,
+                    BoomBoxCartMod.modVersion,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
+                /*
+                if (Instance.modDisabled)
                 {
-                    Instance.modDisabled = true;
+                    //Possibly disable other parts of the mod here
                 }
-                photonView?.RPC("ModFeedbackCheck", RpcTarget.MasterClient, BoomBoxCartMod.modVersion, PhotonNetwork.LocalPlayer.ActorNumber);
+                */
             }
         }
     }

@@ -1,4 +1,7 @@
 # Changelog
+## 1.2.6
+ - Fixed timestamps
+ - Fixed late join
 ## 1.2.5
  - Fixed playback on non-master-clients THANKS TO Omniscye
  - Fixed some minor issues

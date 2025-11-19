@@ -36,11 +36,16 @@ namespace BoomBoxCartMod.Patches
                 return;
 
             Instance.baseListener.GetAllModUsers().Clear();
-            Instance.modDisabled = false;
 
             if (PhotonNetwork.IsMasterClient)
             {
-                BaseListener.photonView?.RPC("ModFeedbackCheck", RpcTarget.OthersBuffered, BoomBoxCartMod.modVersion, PhotonNetwork.LocalPlayer.ActorNumber);
+                Instance.modDisabled = false;
+                BaseListener.photonView?.RPC(
+                    "ModFeedbackCheck",
+                    RpcTarget.OthersBuffered,
+                    BoomBoxCartMod.modVersion,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
                 Instance.baseListener.GetAllModUsers().Add(PhotonNetwork.LocalPlayer.ActorNumber);
             }
         }

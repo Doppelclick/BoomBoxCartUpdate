@@ -35,7 +35,7 @@ namespace BoomBoxCartMod
         public static Dictionary<string, HashSet<int>> downloadErrors = new Dictionary<string, HashSet<int>>();
 
         private const float DOWNLOAD_TIMEOUT = 40f; // 40 seconds timeout for downloads
-        private const float TIMEOUT_THRESHOLD = 5f; // 5 seconds to wait after partial consensus to finish download process
+        private const float TIMEOUT_THRESHOLD = 10f; // 10 seconds to wait after partial consensus to finish download process
         private Dictionary<string, Coroutine> timeoutCoroutines = new Dictionary<string, Coroutine>();
 
         private Queue<string> downloadJobQueue = new Queue<string>();
@@ -50,30 +50,31 @@ namespace BoomBoxCartMod
         {
 		// YouTube TODO:/Youtube Music URLs
 		new Regex(
-            @"^(?<CleanedUrl>((?:https?:)?\/\/)?(((?:www|m)\.)?((?:youtube(?:-nocookie)?\.com|youtu\.be))|music\.youtube\.com)(\/(?:[\w\-]+\?v=|embed\/|live\/|v\/)?)([\w\-]+))(?<TrailingParams>([?](\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
+            @"^(?<CleanedUrl>((?:https?:)?\/\/)?(((?:www|m)\.)?((?:youtube(?:-nocookie)?\.com|youtu\.be))|music\.youtube\.com)(\/(?:[\w\-]+\?v=|embed\/|live\/|v\/)?)([\w\-]+))(?<TrailingParams>(&(\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
     
 		// RuTube URLs
 		new Regex(
-            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www)?\.?)(rutube\.ru)(\/video\/)([\w\-]+))(?<TrailingParams>([?](\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
+            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www)?\.?)(rutube\.ru)(\/video\/)([\w\-]+))(?<TrailingParams>(\?(?:\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
     
 		// Yandex Music URLs
 		new Regex(
-            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www)?\.?)(music\.yandex\.ru)(\/album\/\d+\/track\/)([\w\-]+))(?<TrailingParams>([?](\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
+            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www)?\.?)(music\.yandex\.ru)(\/album\/\d+\/track\/)([\w\-]+))(?<TrailingParams>(?:\?(\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
     
 		// Bilibili URLs
 		new Regex(
-            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www|m)\.)?(bilibili\.com)(\/video\/)([\w\-]+))(?<TrailingParams>([?](\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
+            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www|m)\.)?(bilibili\.com)(\/video\/)([\w\-]+))(?<TrailingParams>(\?(?:\S+&)*?(t=(?<TimeStamp>(?<Seconds>\d+)))\S*)?\S*?)$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
 
 		// SoundCloud URLs -- TODO: Shortened links, but will never support timestamp for those
-		new Regex(@"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www|m)\.)?(soundcloud\.com|snd\.sc)\/([\w\-]+\/[\w\-]+))(?<TrailingParams>(?:\?(?:\S+&?)*?)?#t=(?<TimeStamp>(?<Minutes>\d+)(?:\/|(?:%3A))(?<Seconds>\d{1,2}))\S*?)$",
+		new Regex(
+            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www|m)\.)?(soundcloud\.com|snd\.sc)\/([\w\-]+\/[\w\-]+))(?<TrailingParams>(?:\?(?:\S+&*?#)*?t=(?<TimeStamp>(?<Minutes>\d+)(?:\/|(?:%3A))(?<Seconds>\d{1,2})))?\S*)?$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             )
         };
@@ -81,11 +82,12 @@ namespace BoomBoxCartMod
 
         private void Awake()
         {
-            boomboxParent = GetComponent<Boombox>();
+            boomboxParent = gameObject.GetComponent<Boombox>();
         }
 
         private void OnDestroy()
         {
+            downloadJobQueue.Clear();
             foreach (var coroutine in timeoutCoroutines.Values)
             {
                 if (coroutine != null)
@@ -159,6 +161,12 @@ namespace BoomBoxCartMod
             {
                 processingCoroutine = StartCoroutine(ProcessDownloadQueue());
             }
+        }
+
+        // size in MB is around 1.5 * minutes at max quality, at 10 Mbps or 1.25 MB/s
+        public static float EstimateDownloadTimeSeconds(float songLength)
+        {
+            return (1.5f * songLength / 60f) / 1.25f; 
         }
 
         public void DownloadQueue(int startIndex)
@@ -447,7 +455,7 @@ namespace BoomBoxCartMod
                         "PlayPausePlayback",
                         targetPlayer,
                         true,
-                        (long)(Boombox.GetCurrentTimeMilliseconds() - (Math.Round(boomboxParent.audioSource.time * 1000f) - 10000)),
+                        boomboxParent.GetRelativePlaybackMilliseconds() - 10000L,
                         PhotonNetwork.LocalPlayer.ActorNumber
                     );
                 }
@@ -588,6 +596,19 @@ namespace BoomBoxCartMod
                     {
                         boomboxParent.UpdateUIStatus($"Error: {ex.Message}");
                     }
+
+
+                    /* // TODO: Somehow remove the song, as it was not downloaded correctly
+                    if (PhotonNetwork.IsMasterClient)
+                    {
+                        photonView.RPC(
+                            "RemoveQueueItem",
+                            RpcTarget.All,
+                            boomboxParent.GetCurrentSongIndex(),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
+                    }
+                    */
 
                     // Report download error to other players
                     boomboxParent.photonView.RPC(
