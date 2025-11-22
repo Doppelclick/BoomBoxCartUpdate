@@ -1,6 +1,6 @@
 {
     "name": "BoomboxCartUpgrade",
-    "version_number": "1.2.6",
+    "version_number": "1.2.7",
     "website_url": "https://github.com/Doppelclick/BoomBoxCartUpdate",
     "description": "Carts now double as a boombox! Grab a cart, press Y, and play video links for everyone to hear! Supports YouTube (Music), SoundCloud, Bilibili, Rutube, and more (check README)!",
     "dependencies": ["BepInEx-BepInExPack-5.4.2100"]

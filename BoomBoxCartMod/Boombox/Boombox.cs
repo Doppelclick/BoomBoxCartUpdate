@@ -15,6 +15,7 @@ using Photon.Realtime;
 using UnityEngine.InputSystem;
 using ExitGames.Client.Photon.StructWrapping;
 using HarmonyLib;
+using System.Reflection;
 
 namespace BoomBoxCartMod
 {
@@ -29,15 +30,15 @@ namespace BoomBoxCartMod
 
         public DownloadHelper downloadHelper = null;
 
-        public float maxVolumeLimit = 0.8f; // make the range smaller than 0 to 1.0 volume!
-        float minDistance = 3f;
-        float maxDistanceBase = 10f;
-        float maxDistanceAddition = 20f;
+        bool syncFinished = false; // Only applies to master client
 
-        public AudioEntry currentSong = null;
-        public List<AudioEntry> playbackQueue = new List<AudioEntry>();
+        public float minDistance = 3f;
+        public float maxDistanceBase = 15f;
+        public float maxDistanceAddition = 30f;
+
         public bool isAwaitingSyncPlayback = false;
-        public bool isPlaying = false;
+        public bool startPlayBackOnDownload = true;
+        public BoomboxData data = new BoomboxData(); // Initialized using BaseListener.InitializeBoomboxData when BoomBox is created 
 
         private AudioLowPassFilter lowPassFilter;
         public static int qualityLevel = 4; // 0 lowest, 4 highest
@@ -100,25 +101,14 @@ namespace BoomBoxCartMod
                 visualizer.audioSource = audioSource; // Explicitly set the audiosource
             }
 
+            PersistentData.SetBoomboxViewInitialized(photonView.ViewID);
+
             Logger.LogInfo($"Boombox initialized on this cart. AudioSource: {audioSource}, PhotonView: {photonView}");
         }
 
         private void Update()
         {
-            if (Instance.modDisabled)
-            {
-                Destroy(this);
-                return;
-            }
-
-            // try to prevent double playing for the player(s) who downloaded song, but waiting for slowest to sync w
-            if (isAwaitingSyncPlayback && audioSource.isPlaying)
-            {
-                CleanupCurrentPlayback();
-                //Logger.LogInfo("Stopped premature audio playback while waiting for sync");
-            }
-
-            if (PhotonNetwork.IsMasterClient && isPlaying && MonstersCanHearMusic && EnemyDirector.instance != null)
+            if (PhotonNetwork.IsMasterClient && data.isPlaying && MonstersCanHearMusic && EnemyDirector.instance != null)
             {
                 monsterAttractTimer += Time.deltaTime;
                 if (monsterAttractTimer >= monsterAttractInterval)
@@ -132,21 +122,12 @@ namespace BoomBoxCartMod
                 monsterAttractTimer = 0f;
             }
 
-            if (!mutePressed && Keyboard.current != null && Keyboard.current[Instance.GlobalMuteKey.Value].wasPressedThisFrame)
+            if (Instance.baseListener.audioMuted != audioSource.mute)
             {
-                mutePressed = true;
-                audioMuted = !audioMuted;
-                if (audioSource != null) // Using this here means the audio can only be (un)muted while there is a cart in the lobby
-                {
-                    audioSource.mute = audioMuted;
-                }
-            }
-            else if (mutePressed && (Keyboard.current == null || Keyboard.current[Instance.GlobalMuteKey.Value].wasReleasedThisFrame))
-            {
-                mutePressed = false;
+                audioSource.mute = Instance.baseListener.audioMuted;
             }
 
-            if (isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Song finished playing
+            if (syncFinished && data.isPlaying && !audioSource.isPlaying && PhotonNetwork.IsMasterClient) // Song finished playing
             {
                 int currentIndex = GetCurrentSongIndex();
                 CleanupCurrentPlayback();
@@ -161,16 +142,15 @@ namespace BoomBoxCartMod
                         PhotonNetwork.LocalPlayer.ActorNumber
                     );
                 }
-                else if (currentIndex + 1 >= playbackQueue.Count) // Current song is at end of queue, stop playback or loop to the start if loopQueue is enabled
+                else if (currentIndex + 1 >= data.playbackQueue.Count) // Current song is at end of queue, stop playback or loop to the start if loopQueue is enabled
                 {
                     photonView.RPC(
                         "SyncPlayback",
                         RpcTarget.All,
-                        loopQueue ? 0 : -1,
+                        LoopQueue ? 0 : -1,
                         Boombox.GetCurrentTimeMilliseconds(),
                         PhotonNetwork.LocalPlayer.ActorNumber
                     );
-                    return;
                 }
                 else // Middle of queue, start playing the next song
                 {
@@ -185,10 +165,88 @@ namespace BoomBoxCartMod
             }
         }
 
-        public static long GetCurrentTimeMilliseconds() // TODO: Check
+        public void TogglePlaying(bool value)
+        {
+            data.isPlaying = value;
+        }
+
+        public async void SyncInitializeWithOthers()
+        {
+            if (!PhotonNetwork.IsMasterClient)
+                return;
+
+            Logger.LogInfo("Syncing with others");
+
+            if (Instance.RestoreBoomboxes.Value)
+            {
+                photonView.RPC( // Set data key, to restore to the same cart across clients
+                    "SetData",
+                    RpcTarget.Others,
+                    data.key,
+                    data.playbackQueue.Count,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
+            }
+
+            if (data.playbackQueue.Count > 0 && data.currentSong?.Url != null)
+            {
+                if (PhotonNetwork.IsMasterClient) 
+                    isAwaitingSyncPlayback = true;
+                startPlayBackOnDownload = data.isPlaying && Instance.AutoResume.Value;
+                data.isPlaying = false;
+                downloadHelper.DownloadQueue(GetCurrentSongIndex());
+            }
+            else
+            {
+                data.playbackQueue.Clear();
+                data.currentSong = null;
+            }
+            /* Should not be necessary, since other clients do not restore the queue automatically
+            else
+            {
+                photonView.RPC(
+                    "DismissQueue",
+                    RpcTarget.All,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
+            }
+            */
+
+            syncFinished = true;
+        }
+
+        [PunRPC]
+        public void SetData(string key, int queueSize, int requesterId)
+        {
+            if (requesterId != PhotonNetwork.MasterClient.ActorNumber)
+                return;
+
+            BoomboxData? foundData = Instance.data.GetBoomboxData().FirstOrDefault(data => data.key == key);
+            if (foundData != null)
+            {
+                data = foundData;
+            }
+            else
+            {
+                data.key = key;
+                Instance.data.GetBoomboxData().Add(data);
+            }
+
+            if (data.playbackQueue.Count < queueSize)
+            {
+                photonView.RPC(
+                    "RequestFullSync",
+                    RpcTarget.MasterClient,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
+            }
+
+            TogglePlaying(false);
+        }
+
+        public static long GetCurrentTimeMilliseconds()
         {
             return PhotonNetwork.ServerTimestamp;
-            //return DateTime.Now.Ticks / TimeSpan.TicksPerMillisecond;
         }
 
         public long GetRelativePlaybackMilliseconds()
@@ -210,18 +268,18 @@ namespace BoomBoxCartMod
 
         public int GetCurrentSongIndex()
         {
-            if (currentSong == null)
+            if (data.currentSong == null)
             {
                 return -1;
             }
-            return playbackQueue.IndexOf(currentSong);
+            return data.playbackQueue.IndexOf(data.currentSong);
         }
 
         private void CleanupCurrentPlayback()
         {
             if (audioSource.isPlaying)
                 audioSource.Stop();
-            isPlaying = false;
+            TogglePlaying(false);
 
             audioSource.clip = null;
         }
@@ -229,7 +287,7 @@ namespace BoomBoxCartMod
         public void StartPlayBack()
         {
             //Logger.LogInfo("StartPlayBack() called");
-            AudioClip clip = currentSong?.GetAudioClip();
+            AudioClip clip = data.currentSong?.GetAudioClip();
 
             if (clip == null)
             {
@@ -241,24 +299,24 @@ namespace BoomBoxCartMod
             if (audioSource.clip == clip)
             {
                 audioSource.Play();
-                isPlaying = true;
+                TogglePlaying(true);
                 return;
             }
 
             CleanupCurrentPlayback(); // Probably unnecessary
             audioSource.clip = clip;
-            //audioSource.time = 0;
             SetQuality(qualityLevel);
             UpdateAudioRangeBasedOnVolume(audioSource.volume);
             audioSource.Play();
-            isPlaying = true;
+            TogglePlaying(true);
+
             //Logger.LogInfo($"StartPlayBack() finished, clip={audioSource.clip != null} volume={audioSource.volume} playing={audioSource.isPlaying}");
         }
 
         public void PausePlayBack()
         {
             audioSource.Pause();
-            isPlaying = false;
+            TogglePlaying(false);
         }
 
         //(long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(timeInSeconds * 1000f)) // Need to round
@@ -270,7 +328,7 @@ namespace BoomBoxCartMod
         [PunRPC]
         public async void RequestSong(string url, int seconds, int requesterId)
         {
-            Logger.LogInfo($"RequestSong RPC received: url={url}, sedonds={seconds}, requesterId={requesterId}");
+            //Logger.LogInfo($"RequestSong RPC received: url={url}, sedonds={seconds}, requesterId={requesterId}");
             if (url == null)
                 return;
 
@@ -296,14 +354,15 @@ namespace BoomBoxCartMod
 
             AudioEntry song = new AudioEntry((DownloadHelper.songTitles.ContainsKey(url) ? DownloadHelper.songTitles[url] : "Unknown Title"), url);
             song.StartTime = seconds;
-            playbackQueue.Add(song);
+            data.playbackQueue.Add(song);
 
             //bool isCurrentSong = false;
-            if (currentSong == null) // Start playback if this is the first song added to the queue
+            if (data.currentSong == null) // Start playback if this is the first song added to the queue
             {
                 //isCurrentSong = true;
-                currentSong = song;
-                isAwaitingSyncPlayback = true;
+                data.currentSong = song;
+                if (PhotonNetwork.IsMasterClient)
+                    isAwaitingSyncPlayback = true;
             }
 
             if (!PhotonNetwork.IsMasterClient)
@@ -314,26 +373,38 @@ namespace BoomBoxCartMod
         }
 
         [PunRPC]
-        public void SyncQueue(int currentIndex, List<AudioEntry> queue, long currentSongTimeLeft, int requesterId) // Syncs the queue, but presumes no changes to the current song were made
+        public void SyncQueue(int currentIndex, Dictionary<string, object>[] queueObject, int requesterId) // Syncs the queue, but presumes no changes to the current song were made
         {
             if (requesterId != PhotonNetwork.MasterClient.ActorNumber) // Should not be necessary, but why not
                 return;
 
+            List<AudioEntry> queue = DeserializeAudioEntryArray(queueObject);
+
             Logger.LogInfo($"SyncQueue RPC received: currentIndex={currentIndex}, queueSize={queue.Count}");
 
-            playbackQueue = queue;
-            if (currentIndex > 0 && currentIndex < playbackQueue.Count)
-                currentSong = playbackQueue.ElementAt(currentIndex);
-
-            foreach (AudioEntry song in playbackQueue)
+            data.playbackQueue = queue;
+            foreach (AudioEntry song in data.playbackQueue)
             {
-                string title = song.Title;
-
-                if (!DownloadHelper.songTitles.ContainsKey(title))
+                if (!DownloadHelper.songTitles.ContainsKey(song.Url))
                 {
-                    DownloadHelper.songTitles[title] = title;
+                    DownloadHelper.songTitles[song.Url] = song.Title;
                 }
+            }            
+            
+            if (currentIndex == -1) // Used to stop playback
+            {
+                isAwaitingSyncPlayback = false;
+                data.currentSong = null;
+                CleanupCurrentPlayback();
+                return;
             }
+            else if (currentIndex >= data.playbackQueue.Count) // Invalid
+            {
+                Logger.LogError($"SyncQueue RPC received with wrong index: newSongIndex={currentIndex}, songCount={data.playbackQueue.Count}, requesterId={requesterId}");
+                return;
+            }
+
+            data.currentSong = queue[currentIndex];
         }
 
 
@@ -359,8 +430,8 @@ namespace BoomBoxCartMod
                 //Logger.LogInfo($"Playback stopped by player {requesterId}");
                 UpdateUIStatus("Ready to play music! Enter a Video URL");
             }
-            playbackQueue.Clear();
-            currentSong = null;
+            data.playbackQueue.Clear();
+            data.currentSong = null;
 
             if (PhotonNetwork.IsMasterClient)
             {
@@ -374,17 +445,17 @@ namespace BoomBoxCartMod
         {
             //Logger.LogInfo($"MoveQueueItem RPC received: index={index}, newIndex={newIndex}");
 
-            if (index < 0 || index >= playbackQueue.Count || newIndex < 0 || newIndex >= playbackQueue.Count || index == newIndex)
+            if (index < 0 || index >= data.playbackQueue.Count || newIndex < 0 || newIndex >= data.playbackQueue.Count || index == newIndex)
             {
-                Logger.LogError($"MoveQueueItem RPC received with invalid indices: {index}, {newIndex}, queue count: {playbackQueue.Count}");
+                Logger.LogError($"MoveQueueItem RPC received with invalid indices: {index}, {newIndex}, queue count: {data.playbackQueue.Count}");
                 return;
             }
 
-            AudioEntry tempSong = playbackQueue[index];
-            playbackQueue.RemoveAt(index);
-            playbackQueue.Insert(newIndex, tempSong);
+            AudioEntry tempSong = data.playbackQueue[index];
+            data.playbackQueue.RemoveAt(index);
+            data.playbackQueue.Insert(newIndex, tempSong);
 
-            if (!PhotonNetwork.IsMasterClient)
+            if (!PhotonNetwork.IsMasterClient || DownloadHelper.CheckDownloadCount(data.currentSong.Url, false) >= Instance.baseListener.GetAllModUsers().Count)
                 return;
 
             downloadHelper.DismissDownloadQueue();
@@ -394,27 +465,27 @@ namespace BoomBoxCartMod
         [PunRPC]
         public void RemoveQueueItem(int index, int requesterId) // Removes an item from the queue
         {
-            if (index < 0 || index > playbackQueue.Count)
+            if (index < 0 || index > data.playbackQueue.Count)
             {
-                Logger.LogError($"RemoveQueueItem RPC received with wrong index: index={index}, songCount={playbackQueue.Count}, requesterId={requesterId}");
+                Logger.LogError($"RemoveQueueItem RPC received with wrong index: index={index}, songCount={data.playbackQueue.Count}, requesterId={requesterId}");
                 return;
             }
             //Logger.LogInfo($"RemoveQueueItem RPC received: index={index}");
 
             int currentIndex = GetCurrentSongIndex();
-            playbackQueue.RemoveAt(index);
+            data.playbackQueue.RemoveAt(index);
 
             if (index == currentIndex) // Should never happen, but just to make sure
             {
                 CleanupCurrentPlayback();
-                currentSong = null;
+                data.currentSong = null;
 
                 if (PhotonNetwork.IsMasterClient)
                 {
-                    if (playbackQueue.Count > 0)
+                    if (data.playbackQueue.Count > 0)
                     {
-                        index %= playbackQueue.Count; // currentSongIndex == index
-                        if (currentIndex < playbackQueue.Count || loopQueue) // If the song was not the last in the queue or we want to loop
+                        index %= data.playbackQueue.Count; // currentSongIndex == index
+                        if (currentIndex < data.playbackQueue.Count || LoopQueue) // If the song was not the last in the queue or we want to loop
                         {
                             photonView.RPC(
                                 "SyncPlayback",
@@ -444,13 +515,21 @@ namespace BoomBoxCartMod
             if (newSongIndex == -1) // Used to stop playback
             {
                 isAwaitingSyncPlayback = false;
-                currentSong = null;
+                data.currentSong = null;
                 CleanupCurrentPlayback();
                 return;
             }
-            else if (newSongIndex >= playbackQueue.Count) // Invalid
+            else if (newSongIndex >= data.playbackQueue.Count) // Invalid
             {
-                Logger.LogError($"SyncPlayback RPC received with wrong index: newSongIndex={newSongIndex}, songCount={playbackQueue.Count}, startTime={startTime}, requesterId={requesterId}");
+                if (!PhotonNetwork.IsMasterClient)
+                {
+                    photonView.RPC(
+                        "RequestFullSync",
+                        RpcTarget.MasterClient,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                }
+                Logger.LogError($"SyncPlayback RPC received with wrong index: newSongIndex={newSongIndex}, songCount={data.playbackQueue.Count}, startTime={startTime}, requesterId={requesterId}");
                 return;
             }
 
@@ -459,25 +538,25 @@ namespace BoomBoxCartMod
 
             if (GetCurrentSongIndex() == newSongIndex)
             {
-                if (!isPlaying || !audioSource.isPlaying) // TODO: Possibly do not start playing the song when the time of the song is changed, as this should be handled by PlayPausePlayback
+                if (!data.isPlaying || !audioSource.isPlaying) // TODO: Possibly do not start playing the song when the time of the song is changed, as this should be handled by PlayPausePlayback
                 {
                     StartPlayBack();
                 }
                 SetPlaybackTime(startTime);
                 return;
             }
-            else if (isPlaying || audioSource.isPlaying) // Changing to new song
+            else if (data.isPlaying || audioSource.isPlaying) // Changing to new song
             {
                 CleanupCurrentPlayback();
             }
 
-            AudioEntry oldSong = currentSong;
-            currentSong = playbackQueue.ElementAt(newSongIndex);
+            AudioEntry oldSong = data.currentSong;
+            data.currentSong = data.playbackQueue.ElementAt(newSongIndex);
 
             if (!PhotonNetwork.IsMasterClient) // Handle starting to play a new song from here
                 return;
 
-            if (currentSong?.Url == null) // Should never happen
+            if (data.currentSong?.Url == null) // Should never happen
             {
                 photonView.RPC(
                     "RemoveQueueItem",
@@ -488,13 +567,13 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (currentSong.GetAudioClip() == null) // The download process will play the song once it is finished
+            if (DownloadHelper.CheckDownloadCount(data.currentSong.Url, false) < Instance.baseListener.GetAllModUsers().Count) // The download process will play the song once it is finished
             {
                 // TODO: add proper logic to where the song should be added, instead of just iterating over the whole queue
-                if (currentSong.Url != downloadHelper.GetCurrentDownloadUrl())
+                if (data.currentSong.Url != downloadHelper.GetCurrentDownloadUrl())
                     downloadHelper.DismissDownloadQueue();
                 isAwaitingSyncPlayback = true;
-                if (currentSong.Url != downloadHelper.GetCurrentDownloadUrl())
+                if (data.currentSong.Url != downloadHelper.GetCurrentDownloadUrl())
                     downloadHelper.DownloadQueue(newSongIndex);
             }
             else
@@ -503,7 +582,7 @@ namespace BoomBoxCartMod
                     "PlayPausePlayback",
                     RpcTarget.All,
                     true,
-                    Boombox.GetCurrentTimeMilliseconds() - currentSong.UseStartTime() * 1000,
+                    Boombox.GetCurrentTimeMilliseconds() - data.currentSong.UseStartTime(this) * 1000,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
             }
@@ -512,20 +591,19 @@ namespace BoomBoxCartMod
         [PunRPC]
         public void PlayPausePlayback(bool startPlaying, long startTime, int requesterId)
         {
-            if (playbackQueue.Count == 0)
+            if (data.playbackQueue.Count == 0 || data.currentSong?.GetAudioClip() == null)
             {
                 return;
             }
 
             //Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId} -- currentSong={currentSong != null}, playbackQueueSize={playbackQueue.Count}");
 
-            if (startPlaying != isPlaying)
+            if (startPlaying != data.isPlaying)
             {
                 string playPauseText;
                 if (startPlaying)
                 {
-                    isAwaitingSyncPlayback = false;
-                    if (currentSong == null)
+                    if (data.currentSong == null)
                     {
                         if (PhotonNetwork.IsMasterClient)
                         {
@@ -540,7 +618,6 @@ namespace BoomBoxCartMod
                         return;
                     }
                     StartPlayBack();
-                    SetPlaybackTime(startTime);
                     playPauseText = "Started";
                 }
                 else
@@ -548,17 +625,26 @@ namespace BoomBoxCartMod
                     PausePlayBack();
                     playPauseText = "Paused";
                 }
-                Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
+                //Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
                 //UpdateUIStatus($"{playPauseText} Playback");
             }
-
-            UpdateUIStatus($"Now playing: {(currentSong?.Url == null ? "Unkown" : currentSong?.Title)}");
-
-            if (PhotonNetwork.IsMasterClient && MonstersCanHearMusic
-                && EnemyDirector.instance != null && currentSong != null && transform?.position != null
-            )
+            else if (!startPlaying)
             {
-                EnemyDirector.instance.SetInvestigate(transform.position, 5f);
+                StartPlayBack();
+                PausePlayBack();
+            }
+
+            SetPlaybackTime(startTime);
+
+            if (data.isPlaying)
+            {
+                UpdateUIStatus($"Now playing: {(data.currentSong?.Url == null ? "Unkown" : data.currentSong?.Title)}");
+
+                if (PhotonNetwork.IsMasterClient && MonstersCanHearMusic
+                    && EnemyDirector.instance != null && data.currentSong != null && transform?.position != null
+                ) {
+                    EnemyDirector.instance.SetInvestigate(transform.position, 5f);
+                }
             }
         }
 
@@ -607,7 +693,8 @@ namespace BoomBoxCartMod
         {
             BoomboxController controller = GetComponent<BoomboxController>();
 
-            float actualVolume = volume * maxVolumeLimit;
+            data.absVolume = volume;
+            float actualVolume = volume * data.personalVolumePercentage;
             audioSource.volume = actualVolume;
             UpdateAudioRangeBasedOnVolume(actualVolume);
             //Logger.LogInfo($"Volume updated to {actualVolume} by player {requesterId}");
@@ -644,11 +731,26 @@ namespace BoomBoxCartMod
 
         public void UpdateUIStatus(string message)
         {
+            if (this == null)
+                return;
             BoomboxUI ui = GetComponent<BoomboxUI>();
             if (ui != null && ui.IsUIVisible())
             {
                 ui.UpdateStatus(message);
             }
+        }
+
+        [PunRPC]
+        public void RequestFullSync(int requesterId)
+        {
+            if (!PhotonNetwork.IsMasterClient)
+                return;
+
+            var player = PhotonNetwork.PlayerList.FirstOrDefault(player => player.ActorNumber == requesterId);
+            if (player == null || !Instance.baseListener.GetAllModUsers().Contains(requesterId))
+                return;
+
+            HandleLateJoin(player);
         }
 
         public override void OnPlayerEnteredRoom(Photon.Realtime.Player newPlayer)
@@ -669,8 +771,16 @@ namespace BoomBoxCartMod
                         BoomBoxCartMod.modVersion,
                         PhotonNetwork.LocalPlayer.ActorNumber
                     );
-                    await Task.Delay(1000);
-                    if (Instance.baseListener.GetAllModUsers().Contains(newPlayer.ActorNumber))
+                    float startTime = Time.time;
+                    while (photonView != null && !PersistentData.GetBoomboxViewStatus(newPlayer, photonView.ViewID))
+                    {
+                        if (Time.time - startTime > 5) // Wait max 5 seconds
+                        {
+                            return;
+                        }
+                        await Task.Delay(200);
+                    }
+                    if (photonView != null && Instance.baseListener.GetAllModUsers().Contains(newPlayer.ActorNumber))
                     {
                         HandleLateJoin(newPlayer);
                     }
@@ -680,12 +790,22 @@ namespace BoomBoxCartMod
 
         private async void HandleLateJoin(Photon.Realtime.Player player)
         {
-            photonView.RPC(
+            if (Instance.RestoreBoomboxes.Value)
+            {
+                photonView.RPC( // Set data key, to restore to the same cart across clients
+                    "SetData",
+                    player,
+                    data.key,
+                    0,
+                    PhotonNetwork.LocalPlayer.ActorNumber
+                );
+            }
+
+            photonView.RPC( // Set index and queue
                 "SyncQueue",
                 player,
                 GetCurrentSongIndex(),
-                playbackQueue,
-                (long)Math.Round((audioSource.clip.length - audioSource.time) * 1000f),
+                SerializeAudioEntryList(data.playbackQueue).ToArray(),
                 PhotonNetwork.LocalPlayer.ActorNumber
             );
 
@@ -699,55 +819,13 @@ namespace BoomBoxCartMod
             photonView.RPC(
                 "UpdateVolume",
                 player,
-                audioSource.volume / maxVolumeLimit,
+                data.absVolume,
                 PhotonNetwork.LocalPlayer.ActorNumber
             );
 
-            AudioEntry song = currentSong;
-            if (isPlaying && song?.Url != null && audioSource?.clip != null)
-            {
-                if (audioSource.time + 10 < audioSource.clip.length) // Not worth starting the download of the next song otherwise
-                {
-                    photonView.RPC(
-                        "StartDownloadAndSync",
-                        player,
-                        song.Url,
-                        PhotonNetwork.LocalPlayer.ActorNumber
-                    );
-
-                    float timeToWait = DownloadHelper.EstimateDownloadTimeSeconds(audioSource.clip.length) * 2f;
-                    float startTime = Time.time;
-                    while (true)
-                    {
-                        if (DownloadHelper.downloadsReady.GetValueSafe(song.Url).Contains(player.ActorNumber) ||
-                        DownloadHelper.downloadErrors.GetValueSafe(song.Url).Contains(player.ActorNumber))
-                        {
-                            break;
-                        }
-                        if (Time.time - startTime > timeToWait)
-                        {
-                            return;
-                        }
-                        await Task.Delay(1000);
-                    }
-
-                    if (song == currentSong) // If we haven't skipped to the next song in the meantime
-                    {
-                        photonView.RPC( // Start downloading the next song already
-                            "StartDownloadAndSync",
-                            player,
-                            (GetCurrentSongIndex() + 1) % playbackQueue.Count,
-                            PhotonNetwork.LocalPlayer.ActorNumber
-                        );
-                    }
-                }
-
-                photonView.RPC( // Start downloading the next song instead
-                    "StartDownloadAndSync",
-                    player,
-                    (GetCurrentSongIndex() + 1) % playbackQueue.Count,
-                    PhotonNetwork.LocalPlayer.ActorNumber
-                );
+            if (audioSource?.clip != null) 
+            { // Not worth starting the download of the next song otherwise
+                downloadHelper.DownloadQueue(GetCurrentSongIndex() + ((audioSource.time + 10 > audioSource.clip.length && audioSource.isPlaying) ? 1 : 0));
             }
         }
 
@@ -767,16 +845,21 @@ namespace BoomBoxCartMod
             set => monstersCanHearMusic = value;
         }
 
-        private bool loopQueue = false;
         public bool LoopQueue
         {
-            get => loopQueue;
-            set => loopQueue = value;
+            get => data.loopQueue;
+            set => data.loopQueue = value;
         }
 
+        private void OnDisable()
+        {
+            PersistentData.RemoveBoomboxViewInitialized(photonView.ViewID);
+            data.playbackTime = (int)Math.Round(audioSource.time);
+        }
 
         private void OnDestroy()
         {
+            Instance.data.GetAllBoomboxes().Remove(this);
             Destroy(GetComponent<BoomboxUI>());
             Destroy(visualizer);
             Destroy(lowPassFilter);
@@ -785,6 +868,58 @@ namespace BoomBoxCartMod
             Destroy(gameObject.GetComponent<BoomboxController>());
         }
 
+        public class BoomboxData
+        {
+            public string key = Guid.NewGuid().ToString();
+            public AudioEntry currentSong = null;
+            public List<AudioEntry> playbackQueue = new List<AudioEntry>();
+            public bool isPlaying = false;
+            public float absVolume = 0.19f;
+            public float personalVolumePercentage = 0.8f; // make the range smaller than 0 to 1.0 volume! Allows players to set their volume % individually
+            public bool loopQueue = false;
+
+            public int playbackTime = 0;
+        }
+
+        public List<Dictionary<string, object>> SerializeAudioEntryList(List<AudioEntry> list)
+        {
+            List<Dictionary<string, object>> re = new List<Dictionary<string, object>>();
+
+            foreach (AudioEntry entry in list)
+            {
+                Dictionary<string, object> audioEntry = new Dictionary<string, object>();
+                audioEntry.Add("Title", entry.Title);
+                audioEntry.Add("Url", entry.Url);
+                audioEntry.Add("StartTime", entry.StartTime);
+                re.Add(audioEntry);
+            }
+
+            return re;
+        }
+
+        public List<AudioEntry> DeserializeAudioEntryArray(Dictionary<string, object>[] array)
+        {
+            List<AudioEntry> re = new List<AudioEntry>();
+
+            foreach (Dictionary<string, object> entry in array)
+            {
+                entry.TryGetValue("Title", out object titleObj);
+                string title = titleObj as string ?? "Unknown";
+
+                entry.TryGetValue("Url", out object urlObj);
+                string url = urlObj as string;
+
+                entry.TryGetValue("StartTime", out object startTimeObj);
+                int startTime = startTimeObj as int? ?? 0;
+
+                AudioEntry audioEntry = new AudioEntry(title, url);
+                audioEntry.StartTime = startTime;
+
+                re.Add(audioEntry);
+            }
+
+            return re;
+        }
 
         public class AudioEntry
         {
@@ -799,10 +934,15 @@ namespace BoomBoxCartMod
             }
 
             // Used to sync the start time of a song if the url entered included a timestamp
-            public int UseStartTime()
+            public int UseStartTime(Boombox boombox)
             {
                 int re = StartTime;
-                if (Instance.UseTimeStampOnce.Value)
+                if (boombox.data != null && boombox.data.playbackTime != 0) // Restoring from previous level, otherwise playbacktime == 0
+                {
+                    re = boombox.data.playbackTime;
+                    boombox.data.playbackTime = 0;
+                }
+                else if (Instance.UseTimeStampOnce.Value)
                 {
                     StartTime = 0;
                 }

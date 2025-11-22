@@ -144,6 +144,23 @@ namespace BoomBoxCartMod
             return (null, 0);
         }
 
+        public static int CheckDownloadCount(string url, bool includeErrors = false)
+        {
+            if (string.IsNullOrEmpty(url))
+                return 0;
+
+            int re = 0;
+            if (downloadsReady.ContainsKey(url))
+            {
+                re += downloadsReady[url].Count;
+            }
+            if (downloadErrors.ContainsKey(url))
+            {
+                re += downloadErrors[url].Count;
+            }
+            return re;
+        }
+
 
         public void EnqueueDownload(string Url)
         {
@@ -171,18 +188,18 @@ namespace BoomBoxCartMod
 
         public void DownloadQueue(int startIndex)
         {
-            if (startIndex < 0 || startIndex >= boomboxParent.playbackQueue.Count)
+            if (startIndex < 0 || startIndex >= boomboxParent.data.playbackQueue.Count)
             {
                 startIndex = 0;
             }
 
-            for (int i = startIndex; i < boomboxParent.playbackQueue.Count; i++) // Songs in the queue after the current song
+            for (int i = startIndex; i < boomboxParent.data.playbackQueue.Count; i++) // Songs in the queue after the current song
             {
-                downloadJobQueue.Enqueue(boomboxParent.playbackQueue.ElementAt(i).Url);
+                downloadJobQueue.Enqueue(boomboxParent.data.playbackQueue.ElementAt(i).Url);
             }
             for (int i = 0; i < startIndex; i++) // Songs in the queue from 0 to the current song
             {
-                downloadJobQueue.Enqueue(boomboxParent.playbackQueue.ElementAt(i).Url);
+                downloadJobQueue.Enqueue(boomboxParent.data.playbackQueue.ElementAt(i).Url);
             }
 
             StartDownloadJob();
@@ -217,10 +234,10 @@ namespace BoomBoxCartMod
             // Cache title
             DownloadHelper.songTitles[url] = title;
 
-            if (boomboxParent.currentSong != null && boomboxParent.currentSong.Url == url)
+            if (boomboxParent.data.currentSong != null && boomboxParent.data.currentSong.Url == url)
             {
-                boomboxParent.currentSong.Title = title;
-                if (boomboxParent.currentSong.GetAudioClip() != null)
+                boomboxParent.data.currentSong.Title = title;
+                if (boomboxParent.data.currentSong.GetAudioClip() != null)
                 {
                     boomboxParent.UpdateUIStatus($"Now playing: {title}");
                 }
@@ -242,7 +259,13 @@ namespace BoomBoxCartMod
 
                 // Yield execution until the download and sync process for this URL is complete.
                 yield return MasterClientInitiateSync(url);
+                if (this == null)
+                {
+                    yield break;
+                }
             }
+            if (this == null)
+                yield break;
 
             // Queue is empty, stop the processor.
             isProcessingQueue = false;
@@ -253,7 +276,7 @@ namespace BoomBoxCartMod
         private IEnumerator MasterClientInitiateSync(string url)
         {
             // Check if the song is still in the local playbackQueue (it might have been removed by a user)
-            if (!boomboxParent.playbackQueue.Any(entry => entry.Url == url))
+            if (!boomboxParent.data.playbackQueue.Any(entry => entry.Url == url))
             {
                 //Logger.LogInfo($"Skipping download for {url}, item removed from queue.");
                 yield break;
@@ -267,18 +290,19 @@ namespace BoomBoxCartMod
 
             if (downloadsReady.ContainsKey(url))
             {
-                if (downloadsReady[url].Count == Instance.baseListener.GetAllModUsers().Count) // All players already have the song downloaded
+                if (downloadsReady[url].Count >= Instance.baseListener.GetAllModUsers().Count) // All players already have the song downloaded
                 {
-                    if (!boomboxParent.isPlaying && !boomboxParent.audioSource.isPlaying && boomboxParent.isAwaitingSyncPlayback && url == boomboxParent.currentSong?.Url)
+                    if (!boomboxParent.data.isPlaying && !boomboxParent.audioSource.isPlaying && boomboxParent.isAwaitingSyncPlayback && url == boomboxParent.data.currentSong?.Url)
                     {
                         boomboxParent.isAwaitingSyncPlayback = false;
-                        photonView.RPC(
+                        photonView?.RPC(
                             "PlayPausePlayback",
                             RpcTarget.All,
-                            true,
-                            Boombox.GetCurrentTimeMilliseconds() - boomboxParent.currentSong.UseStartTime() * 1000, 
+                            boomboxParent.startPlayBackOnDownload,
+                            Boombox.GetCurrentTimeMilliseconds() - boomboxParent.data.currentSong.UseStartTime(boomboxParent) * 1000, 
                             PhotonNetwork.LocalPlayer.ActorNumber
                         ); // Should not do anything if there is already a song playing
+                        boomboxParent.startPlayBackOnDownload = true;
                     }
 
                     yield break;
@@ -294,7 +318,7 @@ namespace BoomBoxCartMod
                 downloadErrors[url] = new HashSet<int>();
 
             // RPC call to start the download/sync process on ALL clients
-            photonView.RPC(
+            photonView?.RPC(
                 "StartDownloadAndSync",
                 RpcTarget.All,
                 url,
@@ -309,7 +333,7 @@ namespace BoomBoxCartMod
 
             // --- Cleanup and Final Sync ---
 
-            if (timeoutCoroutines.TryGetValue(requestId, out Coroutine coroutine) && coroutine != null)
+            if (timeoutCoroutines?.TryGetValue(requestId, out Coroutine coroutine) == true && coroutine != null)
             {
                 StopCoroutine(coroutine);
                 timeoutCoroutines.Remove(requestId);
@@ -327,16 +351,17 @@ namespace BoomBoxCartMod
 
             Logger.LogInfo($"Consensus finished for {url}, Starting Playback.");
 
-            if (boomboxParent.isAwaitingSyncPlayback && url == boomboxParent.currentSong?.Url)
+            if (boomboxParent?.isAwaitingSyncPlayback == true && url == boomboxParent.data.currentSong?.Url)
             {
                 boomboxParent.isAwaitingSyncPlayback = false;
-                photonView.RPC(
+                photonView?.RPC(
                     "PlayPausePlayback",
                     RpcTarget.All,
-                    true,
-                    Boombox.GetCurrentTimeMilliseconds() - boomboxParent.currentSong.UseStartTime() * 1000,
+                    boomboxParent.startPlayBackOnDownload,
+                    Boombox.GetCurrentTimeMilliseconds() - boomboxParent.data.currentSong.UseStartTime(boomboxParent) * 1000,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
+                boomboxParent.startPlayBackOnDownload = true;
             }
         }
 
@@ -366,28 +391,29 @@ namespace BoomBoxCartMod
                 if (downloadsReady.ContainsKey(url) && downloadsReady[url].Count > 0)
                 {
                     string timeoutMessage = $"Some players timed out. Continuing playback for {downloadsReady[url].Count} players.";
-                    photonView.RPC(
+                    photonView?.RPC(
                         "NotifyPlayersOfErrors",
                         RpcTarget.All,
                         timeoutMessage
                     );
 
                     // initiate playback with the master client as requester to unblock the system
-                    if (boomboxParent.isAwaitingSyncPlayback && boomboxParent.currentSong?.Url == url)
+                    if (boomboxParent.isAwaitingSyncPlayback && boomboxParent.data.currentSong?.Url == url)
                     {
                         boomboxParent.isAwaitingSyncPlayback = false;
-                        photonView.RPC(
+                        photonView?.RPC(
                             "PlayPausePlayback",
                             RpcTarget.All,
-                            true,
-                            Boombox.GetCurrentTimeMilliseconds(),
+                            boomboxParent.startPlayBackOnDownload,
+                            Boombox.GetCurrentTimeMilliseconds() - boomboxParent.data.currentSong.UseStartTime(boomboxParent) * 1000,
                             PhotonNetwork.LocalPlayer.ActorNumber
                         );
+                        boomboxParent.startPlayBackOnDownload = true;
                     }
                 }
                 else
                 {
-                    photonView.RPC(
+                    photonView?.RPC(
                         "NotifyPlayersOfErrors",
                         RpcTarget.All,
                         "Download timed out for all players."
@@ -405,6 +431,11 @@ namespace BoomBoxCartMod
         [PunRPC]
         public async void StartDownloadAndSync(string url, int requesterId)
         {
+            if (url == null)
+            {
+                return;
+            }
+
             if (currentDownloadUrl != url)
             {
                 currentDownloadUrl = url;
@@ -426,7 +457,7 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (await StartAudioDownload(url))
+            if (await StartAudioDownload(url) && this != null)
             {
                 photonView.RPC(
                     "ReportDownloadComplete",
@@ -446,22 +477,29 @@ namespace BoomBoxCartMod
             if (!downloadsReady.ContainsKey(url))
                 downloadsReady[url] = new HashSet<int>();
 
-            if (boomboxParent.audioSource.isPlaying && boomboxParent.isPlaying) // Handle e.g. late join
+            if (downloadErrors.ContainsKey(url) && downloadErrors[url].Contains(actorNumber))
+                downloadErrors[url].Remove(actorNumber);
+
+            if (boomboxParent.audioSource.isPlaying && boomboxParent.data.isPlaying) // Handle e.g. late join
             {
                 PhotonNetwork.CurrentRoom.Players.TryGetValue(actorNumber, out Player targetPlayer);
                 if (!downloadsReady[url].Contains(actorNumber) && targetPlayer != null)
                 {
-                    photonView.RPC(
-                        "PlayPausePlayback",
-                        targetPlayer,
-                        true,
-                        boomboxParent.GetRelativePlaybackMilliseconds() - 10000L,
-                        PhotonNetwork.LocalPlayer.ActorNumber
-                    );
+                    if (boomboxParent.data.currentSong?.Url == url)
+                    {
+                        photonView.RPC(
+                            "PlayPausePlayback",
+                            targetPlayer,
+                            true,
+                            boomboxParent.GetRelativePlaybackMilliseconds(),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
+                    }
                 }
             }
-
-            downloadsReady[url].Add(actorNumber);
+            
+            if (!downloadsReady[url].Contains(actorNumber))
+                downloadsReady[url].Add(actorNumber);
             //Logger.LogInfo($"Player {actorNumber} reported ready for url: {url}. Total ready: {downloadsReady[url].Count}");
         }
 
@@ -477,7 +515,7 @@ namespace BoomBoxCartMod
 
             // Wait until either all players are accounted for (ready + error = total) 
             // or we have at least one player ready and some have errors
-            while (true)
+            while (true && this != null)
             {
                 readyCount = downloadsReady.ContainsKey(url) ? downloadsReady[url].Count : 0;
                 errorCount = downloadErrors.ContainsKey(url) ? downloadErrors[url].Count : 0;
@@ -514,7 +552,8 @@ namespace BoomBoxCartMod
                 yield return new WaitForSeconds(waitTime);
             }
 
-            Logger.LogInfo($"Ready to proceed with playback. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers} for url: {url}");
+            if (this != null)
+                Logger.LogInfo($"Ready to proceed with playback. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers} for url: {url}");
         }
 
         public static async Task<AudioClip> GetAudioClipAsync(string filePath)
@@ -567,7 +606,8 @@ namespace BoomBoxCartMod
                     var title = await YoutubeDL.DownloadAudioTitleAsync(url);
 
                     songTitles[url] = title;
-                    boomboxParent.photonView.RPC(
+
+                    boomboxParent?.photonView?.RPC(
                         "SetSongTitle",
                         RpcTarget.All,
                         url,
@@ -577,9 +617,9 @@ namespace BoomBoxCartMod
 
                     var filePath = await YoutubeDL.DownloadAudioAsync(url, title);
 
-                    if (boomboxParent.currentSong?.Url == url)
+                    if (boomboxParent?.data?.currentSong?.Url == url)
                     {
-                        boomboxParent.UpdateUIStatus($"Processing audio: {title}");
+                        boomboxParent?.UpdateUIStatus($"Processing audio: {title}");
                     }
 
                     AudioClip clip = await GetAudioClipAsync(filePath);
@@ -591,9 +631,9 @@ namespace BoomBoxCartMod
                 {
                     //Logger.LogError($"Failed to download audio: {ex.Message}");
 
-                    if (boomboxParent.currentSong?.Url == url)
+                    if (boomboxParent?.data?.currentSong?.Url == url)
                     {
-                        boomboxParent.UpdateUIStatus($"Error: {ex.Message}");
+                        boomboxParent?.UpdateUIStatus($"Error: {ex.Message}");
                     }
 
 
@@ -610,7 +650,8 @@ namespace BoomBoxCartMod
                     */
 
                     // Report download error to other players
-                    boomboxParent.photonView.RPC(
+
+                    boomboxParent?.photonView?.RPC(
                         "ReportDownloadError",
                         RpcTarget.All,
                         PhotonNetwork.LocalPlayer.ActorNumber,
@@ -621,20 +662,25 @@ namespace BoomBoxCartMod
                     return false;
                 }
             }
+            /*
             else
             {
-                //Logger.LogInfo($"Clip already cached for url: {Url}");
+                Logger.LogInfo($"Clip already cached for url: {Url}");
             }
+            */
 
-
-            foreach (AudioEntry song in boomboxParent.playbackQueue.FindAll(entry => entry.Url == url))
+            if (boomboxParent?.data?.playbackQueue != null)
             {
-                if (songTitles.ContainsKey(url))
-                    song.Title = songTitles[url];
+                foreach (AudioEntry song in boomboxParent.data.playbackQueue.FindAll(entry => entry.Url == url))
+                {
+                    if (songTitles.ContainsKey(url))
+                        song.Title = songTitles[url];
+                }
             }
 
             return true;
         }
+
         public void RemoveFromCache(string url)
         {
             if (downloadedClips.ContainsKey(url))

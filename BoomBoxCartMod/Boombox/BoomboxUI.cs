@@ -30,6 +30,9 @@ namespace BoomBoxCartMod
         private float normalizedVolume = 0.3f; // norm volume is 0-1, actual volume is 0-maxVolumeLimit (in boombox.cs) ((1 is so loud))
         private float lastSentNormalizedVolume = 0.3f;
         private bool isVolumeSliderBeingDragged = false; // used to apply changes on slider release
+        // Individual
+        private bool isIndividualVolumeBeingDragged = false;
+
 
         // Quality
         private int qualityLevel = 3;
@@ -148,18 +151,23 @@ namespace BoomBoxCartMod
             if (isTimeSliderBeingDragged && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
             {
                 isTimeSliderBeingDragged = false;
-                songIndexForTime = -2;
-                songTimePerc = 0f;
-                lastSentSongTimePerc = -1f;
+
                 //Logger.LogInfo("Time slider released, sending time update");
                 SendTimeUpdate();
-            }
+                songIndexForTime = -2;
+                songTimePerc = 0f;
+                lastSentSongTimePerc = -1f;            }
 
             if (isVolumeSliderBeingDragged && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
             {
                 isVolumeSliderBeingDragged = false;
                 //Logger.LogInfo("Volume slider released, sending volume update");
                 SendVolumeUpdate();
+            }
+
+            if (isIndividualVolumeBeingDragged && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
+            {
+                isIndividualVolumeBeingDragged = false;
             }
 
             if (isQualitySliderBeingDragged && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
@@ -191,7 +199,7 @@ namespace BoomBoxCartMod
 
                 if (boombox != null)
                 {
-                    normalizedVolume = boombox.audioSource.volume / boombox.maxVolumeLimit;
+                    normalizedVolume = boombox.audioSource.volume / boombox.data.personalVolumePercentage;
                     lastSentNormalizedVolume = normalizedVolume;
                     qualityLevel = Boombox.qualityLevel;
                     lastSentQualityLevel = qualityLevel;
@@ -207,17 +215,17 @@ namespace BoomBoxCartMod
         {
             if (boombox != null)
             {
-                if (boombox.downloadHelper.IsProcessingQueue() && boombox.currentSong != null && boombox.currentSong.GetAudioClip() == null)
+                if (boombox.downloadHelper.IsProcessingQueue() && boombox.data.currentSong != null && boombox.data.currentSong.GetAudioClip() == null)
                 {
                     statusMessage = $"Downloading audio from {boombox.downloadHelper.GetCurrentDownloadUrl()}...";
                 }
-                else if (boombox.isPlaying && boombox.currentSong != null)
+                else if (boombox.data.currentSong != null && boombox.data.isPlaying)
                 {
-                    statusMessage = $"Now playing: {boombox.currentSong.Title}";
+                    statusMessage = $"Now playing: {boombox.data.currentSong.Title}";
                 }
-                else if (!string.IsNullOrEmpty(boombox.currentSong?.Url))
+                else if (!string.IsNullOrEmpty(boombox.data.currentSong?.Url))
                 {
-                    statusMessage = $"Ready to play: {boombox.currentSong.Title}";
+                    statusMessage = $"Ready to play: {boombox.data.currentSong.Title}";
                 }
                 else
                 {
@@ -232,6 +240,7 @@ namespace BoomBoxCartMod
             if (songTimePerc != lastSentSongTimePerc)
             {
                 lastSentSongTimePerc = songTimePerc;
+
 
                 if (boombox?.GetCurrentSongIndex() == songIndexForTime && songIndexForTime != -1 && // Make sure the song has not changed in the meantime
                     boombox?.audioSource?.clip != null && boombox.audioSource.clip.length > 0)
@@ -264,7 +273,7 @@ namespace BoomBoxCartMod
                 // update local volume
                 if (boombox.audioSource != null)
                 {
-                    float actualVolume = normalizedVolume * boombox.maxVolumeLimit;
+                    float actualVolume = normalizedVolume * boombox.data.personalVolumePercentage;
                     //Logger.LogInfo($"Setting volume locally to {actualVolume}");
                     boombox.audioSource.volume = actualVolume;
                 }
@@ -272,7 +281,7 @@ namespace BoomBoxCartMod
                 // update volume for all others too
                 photonView?.RPC(
                     "UpdateVolume",
-                    RpcTarget.AllBuffered,
+                    RpcTarget.All,
                     normalizedVolume,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
@@ -297,7 +306,7 @@ namespace BoomBoxCartMod
                 // update qual for others too
                 photonView?.RPC(
                     "UpdateQuality",
-                    RpcTarget.AllBuffered,
+                    RpcTarget.All,
                     qualityLevel,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
@@ -436,6 +445,9 @@ namespace BoomBoxCartMod
         // Modified DrawUI to implement two-column layout
         private void DrawUI(int windowID)
         {
+            if (boombox?.data == null)
+                return;
+
             // Title Header
             GUILayout.Label($"Control The Boombox In The Cart{(Boombox.audioMuted ? $" - MUTED({Instance.GlobalMuteKey.Value.ToString()})" : "")}", headerStyle);
 
@@ -600,7 +612,7 @@ namespace BoomBoxCartMod
 
 
                 // PLAY/QUEUE-Button
-                string playButtonText = boombox != null && boombox.playbackQueue.Count > 0 ? "+ ENQUEUE" : "▶ PLAY";
+                string playButtonText = boombox?.data != null && boombox.data.playbackQueue.Count > 0 ? "+ ENQUEUE" : "▶ PLAY";
                 if (GUILayout.Button(playButtonText, buttonStyle, GUILayout.Height(40)))
                 {
                 (string cleanedUrl, int seconds) = IsValidVideoUrl(urlInput);
@@ -625,16 +637,16 @@ namespace BoomBoxCartMod
 
 
                 // Resume/Pause-Button
-                string pauseButtonText = (boombox == null || boombox.audioSource == null || (boombox.audioSource?.clip == null && boombox.playbackQueue.Count == 0)) ? 
+                string pauseButtonText = (boombox.data.currentSong?.GetAudioClip() == null) ? 
                     "..." : boombox.audioSource.isPlaying ? "\u258C\u258C PAUSE" : "\u25B6 RESUME"; // || PAUSE or > RESUME
                 if (GUILayout.Button(pauseButtonText, buttonStyle, GUILayout.Height(40)))
                 {
-                    if (boombox != null && boombox.audioSource != null)
+                    if (boombox.data.currentSong?.GetAudioClip() != null)
                     {
                         photonView?.RPC(
                             "PlayPausePlayback",
                             RpcTarget.All,
-                            !boombox.isPlaying,
+                            !boombox.data.isPlaying,
                             boombox.GetRelativePlaybackMilliseconds(),
                             PhotonNetwork.LocalPlayer.ActorNumber
                         );
@@ -662,7 +674,7 @@ namespace BoomBoxCartMod
 
                 // Download status information for current song
                 if (boombox != null && boombox.downloadHelper.IsProcessingQueue()
-                    && boombox.currentSong?.GetAudioClip() == null && boombox.downloadHelper.GetCurrentDownloadUrl() != null
+                    && boombox.data.currentSong?.GetAudioClip() == null && boombox.downloadHelper.GetCurrentDownloadUrl() != null
                 )
                 {
                     GUILayout.Space(10);
@@ -726,7 +738,7 @@ namespace BoomBoxCartMod
                         // update local volume for immediate feedback while sliding
                         if (boombox != null && boombox.audioSource != null)
                         {
-                            float actualVolume = normalizedVolume * boombox.maxVolumeLimit;
+                            float actualVolume = normalizedVolume * boombox.data.personalVolumePercentage;
                             boombox.audioSource.volume = actualVolume;
                         }
 
@@ -735,6 +747,30 @@ namespace BoomBoxCartMod
 
                 GUILayout.EndHorizontal();
 
+                // Volume Percentage Control Section
+                GUILayout.Space(15);
+                GUILayout.Label($"Personal Volume %: {Mathf.Round(boombox.data.personalVolumePercentage)}%", labelStyle);
+
+                GUILayout.BeginHorizontal();
+
+                // check if the user started dragging the slider
+                if (Event.current.type == EventType.MouseDown &&
+                    GUILayoutUtility.GetLastRect().Contains(Event.current.mousePosition))
+                {
+                    isIndividualVolumeBeingDragged = true;
+                }
+
+                float newPersonalVolume = GUILayout.HorizontalSlider(boombox.data.personalVolumePercentage, 0f, 1f, sliderStyle, GUI.skin.horizontalSliderThumb);
+
+                // if volume changed and we weren't already dragging, start tracking drag
+                if (newPersonalVolume != boombox.data.personalVolumePercentage)
+                {
+                    isVolumeSliderBeingDragged = true;
+                    boombox.data.personalVolumePercentage = newPersonalVolume;
+                    boombox.audioSource.volume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
+                }
+
+                GUILayout.EndHorizontal();
 
                 // Quality Control Section
                 GUILayout.Space(15);
@@ -864,7 +900,7 @@ namespace BoomBoxCartMod
 
             queueScrollPosition = GUILayout.BeginScrollView(queueScrollPosition, false, true, GUILayout.ExpandHeight(true));
 
-                List<Boombox.AudioEntry> fullQueue = boombox.playbackQueue;
+                List<Boombox.AudioEntry> fullQueue = boombox.data.playbackQueue;
                 int currentIndex = boombox.GetCurrentSongIndex();
 
                 if (fullQueue.Count == 0) // && currentIndex == -1   Not necessary, may cause errors
@@ -1009,7 +1045,5 @@ namespace BoomBoxCartMod
             if (sliderThumbTexture != null) Destroy(sliderThumbTexture);
             if (textFieldBackgroundTexture != null) Destroy(textFieldBackgroundTexture);
         }
-
-        // REMOVED AddToHistory - Moved to the Boombox class queue management.
     }
 }

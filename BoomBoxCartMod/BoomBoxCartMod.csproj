@@ -123,6 +123,7 @@
     <Compile Include="Plugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Util\BaseListener.cs" />
+    <Compile Include="Util\PersistentData.cs" />
     <Compile Include="Util\YouTubeDL.cs" />
   </ItemGroup>
   <ItemGroup />

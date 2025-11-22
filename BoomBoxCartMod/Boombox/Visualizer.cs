@@ -4,7 +4,10 @@ namespace BoomBoxCartMod
 {
     public class Visualizer : MonoBehaviour
     {
+        private static BoomBoxCartMod Instance = BoomBoxCartMod.instance;
+
         public AudioSource audioSource;
+        private bool visible = true;
         public int numBars = 16;
         public int spectrumSize = 128;
         public float radius = 0.7f;
@@ -14,6 +17,21 @@ namespace BoomBoxCartMod
         public float heightMultiplier = 24f;
         private float[] spectrum;
         private Transform[] bars;
+
+        private bool lastPlaying = false;
+
+        public bool IsVisible
+        {
+            get => visible;
+            set
+            {
+                visible = value;
+                for (int i = 0; i < numBars; i++)
+                {
+                    bars[i].GetComponent<Renderer>().enabled = value || Instance.VisualizerBehaviourPaused.Value != BoomBoxCartMod.VisualizerPaused.Hide;
+                }
+            }
+        }
 
         private void Start()
         {
@@ -34,11 +52,26 @@ namespace BoomBoxCartMod
                 Destroy(bar.GetComponent<Collider>());
                 bars[i] = bar.transform;
             }
+
+            IsVisible = audioSource.isPlaying || Instance.VisualizerBehaviourPaused.Value != BoomBoxCartMod.VisualizerPaused.Hide;
+            lastPlaying = audioSource.isPlaying;
         }
 
         private void Update()
         {
-            if (audioSource != null && audioSource.isPlaying)
+            bool isPlaying = audioSource?.isPlaying ?? false;
+            if (lastPlaying != isPlaying)
+            {
+                IsVisible = isPlaying || Instance.VisualizerBehaviourPaused.Value != BoomBoxCartMod.VisualizerPaused.Hide;
+                lastPlaying = isPlaying;
+            }
+
+            if (!visible)
+            {
+                return;
+            }
+
+            if (isPlaying)
             {
                 audioSource.GetSpectrumData(spectrum, 0, FFTWindow.Blackman);
 
@@ -61,7 +94,7 @@ namespace BoomBoxCartMod
                     bars[i].localScale = scale;
                 }
             }
-            else
+            else if (Instance.VisualizerBehaviourPaused.Value == BoomBoxCartMod.VisualizerPaused.Show)
             {
                 for (int i = 0; i < numBars; i++)
                 {

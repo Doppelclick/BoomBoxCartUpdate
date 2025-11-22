@@ -1,10 +1,13 @@
 ﻿using BepInEx.Logging;
+using BoomBoxCartMod.Util;
 using HarmonyLib;
+using Photon.Pun;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace BoomBoxCartMod.Patches
 {
@@ -31,11 +34,44 @@ namespace BoomBoxCartMod.Patches
 
 			if (__instance.GetComponent<Boombox>() == null)
 			{
-				__instance.gameObject.AddComponent<Boombox>();
-				//Logger.LogInfo($"Boombox component added to {__instance.name}");
-			}
+				Boombox boombox = __instance.gameObject.AddComponent<Boombox>();
+                Instance.data.InitializeBoomboxData(boombox);
+				if (PhotonNetwork.IsMasterClient)
+				{
+					Task.Run(async () =>
+					{
+						float startTime = Time.time;
+						while (boombox.photonView != null)
+						{
+							var modUsers = Instance.baseListener.GetAllModUsers();
+							int count = 0;
 
-			if (__instance.GetComponent<BoomboxController>() == null)
+							foreach (var player in PhotonNetwork.PlayerList) {
+                                if (modUsers.Contains(player.ActorNumber) &&
+									PersistentData.GetBoomboxViewStatus(player, boombox.photonView.ViewID)
+								) {
+									count++;
+								}
+							}
+
+							if (count >= modUsers.Count)
+							{
+								boombox.SyncInitializeWithOthers();
+								break;
+							}
+
+                            if (Time.time - startTime > 5) // Wait max 5 seconds
+							{
+								break;
+                            }
+                            Task.Delay(200);
+                        }
+					});
+				}
+                //Logger.LogInfo($"Boombox component added to {__instance.name}");
+            }
+
+            if (__instance.GetComponent<BoomboxController>() == null)
 			{
 				__instance.gameObject.AddComponent<BoomboxController>();
 				//Logger.LogInfo($"BoomboxController component added to {__instance.name}");

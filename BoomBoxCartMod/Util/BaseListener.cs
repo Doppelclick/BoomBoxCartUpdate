@@ -2,19 +2,24 @@
 using Photon.Pun;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using UnityEngine.InputSystem;
+using UnityEngine;
 
 namespace BoomBoxCartMod.Util
 {
     public class BaseListener : MonoBehaviourPunCallbacks
     {
         private static BoomBoxCartMod Instance = BoomBoxCartMod.instance;
-
-        private List<int> modList = new List<int>();
         public static PhotonView photonView;
 
+        private List<int> modList = new List<int>();
+
+        public bool audioMuted = false;
+        private bool mutePressed = false;
 
         public List<int> GetAllModUsers()
         {
@@ -34,6 +39,27 @@ namespace BoomBoxCartMod.Util
             photonView = GetComponent<PhotonView>();
         }
 
+        private void Update()
+        {
+            if (!mutePressed && Keyboard.current != null && Keyboard.current[Instance.GlobalMuteKey.Value].wasPressedThisFrame)
+            {
+                mutePressed = true;
+                audioMuted = !audioMuted;
+            }
+            else if (mutePressed && (Keyboard.current == null || Keyboard.current[Instance.GlobalMuteKey.Value].wasReleasedThisFrame))
+            {
+                mutePressed = false;
+            }
+        }
+
+        public override void OnPlayerLeftRoom(Photon.Realtime.Player otherPlayer)
+        {
+            base.OnPlayerLeftRoom(otherPlayer);
+            modList.Remove(otherPlayer.ActorNumber);
+
+            Instance.logger.LogInfo("player left room");
+        }
+
         [PunRPC]
         public void ModFeedbackCheck(string modVersion, int actorNumber)
         {
@@ -50,18 +76,22 @@ namespace BoomBoxCartMod.Util
             {
                 Instance.modDisabled = modVersion != BoomBoxCartMod.modVersion;
                 Instance.logger.LogInfo($"Mod {(Instance.modDisabled ? "DISABLED" : "ENABLED")}. Current version: {BoomBoxCartMod.modVersion}, requested: {modVersion}");
+                
                 photonView?.RPC(
                     "ModFeedbackCheck",
                     RpcTarget.MasterClient,
                     BoomBoxCartMod.modVersion,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
-                /*
                 if (Instance.modDisabled)
                 {
-                    //Possibly disable other parts of the mod here
+                    foreach (Boombox boombox in Instance.data.GetAllBoomboxes())
+                    {
+                        Destroy(boombox);
+                    }
+                    Instance.data.GetAllBoomboxes().Clear();
+                    Instance.data.GetBoomboxData().Clear();
                 }
-                */
             }
         }
     }

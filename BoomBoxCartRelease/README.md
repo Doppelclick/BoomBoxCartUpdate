@@ -34,7 +34,7 @@ Reach out to me (link at the end) for issues with any service listed here, or su
 
 <p>Possible Future Features:</p>
 <ul>
-    <li>None right now, suggest some maybe!</li>
+    <li>Suggest some maybe!</li>
 </ul>
 
 ## Credits
