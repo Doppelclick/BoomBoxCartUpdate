@@ -749,7 +749,7 @@ namespace BoomBoxCartMod
 
                 // Volume Percentage Control Section
                 GUILayout.Space(15);
-                GUILayout.Label($"Personal Volume %: {Mathf.Round(boombox.data.personalVolumePercentage)}%", labelStyle);
+                GUILayout.Label($"Personal Volume %: {Mathf.Round(boombox.data.personalVolumePercentage * 100f)}%", labelStyle);
 
                 GUILayout.BeginHorizontal();
 

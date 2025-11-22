@@ -1,6 +1,6 @@
 # Changelog
 ## 1.2.7
- - Keep queue between level (config options), as well as cart settings
+ - Keep queue between levels (config options), as well as cart settings
  - Fixed mute keybind
  - Overhauled late join
  - Fixed time bar
