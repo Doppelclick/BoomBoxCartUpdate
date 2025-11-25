@@ -558,6 +558,8 @@ namespace BoomBoxCartMod
 
         public static async Task<AudioClip> GetAudioClipAsync(string filePath)
         {
+            await Task.Yield(); // Render frame before running function
+
             if (!File.Exists(filePath))
             {
                 throw new Exception($"Audio file not found at path: {filePath}");
@@ -574,6 +576,7 @@ namespace BoomBoxCartMod
             using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG))
             {
                 www.timeout = (int)DOWNLOAD_TIMEOUT;
+                ((DownloadHandlerAudioClip)www.downloadHandler).streamAudio = true; // Eliminate stutter by loading the clip dynamically
 
                 TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
                 var operation = www.SendWebRequest();
@@ -590,7 +593,10 @@ namespace BoomBoxCartMod
                 await tcs.Task;
                 AudioClip clip = DownloadHandlerAudioClip.GetContent(www);
 
-                // MOVED to YouTubeDL.CleanUp()
+                if (clip == null)
+                {
+                    throw new Exception("Failed to get AudioClip content.");
+                }
 
                 return clip;
             }

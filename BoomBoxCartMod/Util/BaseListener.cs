@@ -39,7 +39,7 @@ namespace BoomBoxCartMod.Util
             photonView = GetComponent<PhotonView>();
         }
 
-        private void Update()
+        private void Update() // TODO: Do not do in gui while typing somehow
         {
             if (!mutePressed && Keyboard.current != null && Keyboard.current[Instance.GlobalMuteKey.Value].wasPressedThisFrame)
             {

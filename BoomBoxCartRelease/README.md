@@ -29,7 +29,6 @@ Reach out to me (link at the end) for issues with any service listed here, or su
 <ul>
     <li>When the menu is opened you can still move and click through it</li>
     <li>Singleplayer does NOT work at all. Clicking "Host Game" and playing solo works though!</li>
-    <li>Small stutter when audio is downloaded (longer video, longer stutter)</li>
 </ul>
 
 <p>Possible Future Features:</p>

@@ -441,7 +441,7 @@ namespace BoomBoxCartMod
         }
 
         [PunRPC]
-        public void MoveQueueItem(int index, int newIndex, int requesterId) // Moves an item in the queue
+        public void MoveQueueItem(int index, int newIndex, int requesterId) // Moves an item in the queue  TODO: Fix some rare nullptrexception
         {
             //Logger.LogInfo($"MoveQueueItem RPC received: index={index}, newIndex={newIndex}");
 
@@ -455,7 +455,7 @@ namespace BoomBoxCartMod
             data.playbackQueue.RemoveAt(index);
             data.playbackQueue.Insert(newIndex, tempSong);
 
-            if (!PhotonNetwork.IsMasterClient || DownloadHelper.CheckDownloadCount(data.currentSong.Url, false) >= Instance.baseListener.GetAllModUsers().Count)
+            if (!PhotonNetwork.IsMasterClient || data.currentSong?.Url == null || DownloadHelper.CheckDownloadCount(data.currentSong.Url, false) >= Instance.baseListener.GetAllModUsers().Count)
                 return;
 
             downloadHelper.DismissDownloadQueue();
@@ -874,8 +874,8 @@ namespace BoomBoxCartMod
             public AudioEntry currentSong = null;
             public List<AudioEntry> playbackQueue = new List<AudioEntry>();
             public bool isPlaying = false;
-            public float absVolume = 0.19f;
-            public float personalVolumePercentage = 0.8f; // make the range smaller than 0 to 1.0 volume! Allows players to set their volume % individually
+            public float absVolume = 0.6f;
+            public float personalVolumePercentage = 0.35f; // make the range smaller than 0 to 1.0 volume! Allows players to set their volume % individually
             public bool loopQueue = false;
 
             public int playbackTime = 0;

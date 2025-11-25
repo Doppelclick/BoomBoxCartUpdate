@@ -1,4 +1,8 @@
 # Changelog
+## 1.2.8
+ - Fix Audio Download causing game to stutter (stream audio from storage instead of loading all instantly)
+ - Fix displayed value in gui for personal volume
+ - Change default audio volume to prevent TOO loud audio without every user setting their personal volume too
 ## 1.2.7
  - Keep queue between levels (config options), as well as cart settings
  - Fixed mute keybind

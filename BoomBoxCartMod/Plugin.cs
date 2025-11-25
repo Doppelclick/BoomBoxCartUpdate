@@ -21,7 +21,7 @@ namespace BoomBoxCartMod
 	{
 		public const string modGUID = "Doppelclick.BoomboxCartUpgrade";
 		public const string modName = "BoomboxCartUpgrade";
-		public const string modVersion = "1.2.7";
+		public const string modVersion = "1.2.8";
 
 		private readonly Harmony harmony = new Harmony(modGUID);
         public BaseListener baseListener = null;
