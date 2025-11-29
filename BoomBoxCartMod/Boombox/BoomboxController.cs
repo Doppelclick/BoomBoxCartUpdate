@@ -71,7 +71,7 @@ namespace BoomBoxCartMod
 			}
 
 			// can only give control if nobody else grabbing that thang
-			if (currentControllerId == -1 && validRequest)
+			if ((currentControllerId == -1 || !Instance.baseListener.GetAllModUsers().Contains(requesterId)) && validRequest)
 			{
 				// Grant control to requester
 				//Logger.LogInfo($"Granting control to player {requesterId}");

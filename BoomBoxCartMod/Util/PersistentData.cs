@@ -18,6 +18,9 @@ namespace BoomBoxCartMod.Util
 
         public static bool GetBoomboxViewStatus(Player player, int viewID)
         {
+            if (!PhotonNetwork.IsConnected)
+                return false;
+
             string valName = "boomboxView" + viewID;
 
             if (player.CustomProperties.TryGetValue(valName, out object value))
@@ -36,7 +39,7 @@ namespace BoomBoxCartMod.Util
         }
 
         public static void SetBoomboxViewInitialized(int viewID)
-        {
+        {            
             string valName = "boomboxView" + viewID;
 
             var props = new ExitGames.Client.Photon.Hashtable();
@@ -47,14 +50,14 @@ namespace BoomBoxCartMod.Util
 
         public static void RemoveBoomboxViewInitialized(int viewID)
         {
+            if (!PhotonNetwork.IsConnected)
+                return;
+
             string valName = "boomboxView" + viewID;
 
-            var props = new ExitGames.Client.Photon.Hashtable();
-            props.Add(valName, null);
+            PhotonNetwork.LocalPlayer.CustomProperties.Remove(valName);
 
-            PhotonNetwork.LocalPlayer.SetCustomProperties(props);
-
-            Instance.logger.LogInfo("Still has property after deletion: " + GetBoomboxViewStatus(PhotonNetwork.LocalPlayer, viewID));
+            //Instance.logger.LogInfo("Still has property after deletion: " + GetBoomboxViewStatus(PhotonNetwork.LocalPlayer, viewID));
         }
 
         public List<Boombox> GetAllBoomboxes()

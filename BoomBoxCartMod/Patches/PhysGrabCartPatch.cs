@@ -60,7 +60,7 @@ namespace BoomBoxCartMod.Patches
 								break;
 							}
 
-                            if (Time.time - startTime > 5) // Wait max 5 seconds
+                            if (Time.time - startTime > 10) // Wait max 10 seconds
 							{
 								break;
                             }

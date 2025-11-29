@@ -16,6 +16,7 @@ using UnityEngine.InputSystem;
 using ExitGames.Client.Photon.StructWrapping;
 using HarmonyLib;
 using System.Reflection;
+using static BoomBoxCartMod.Boombox;
 
 namespace BoomBoxCartMod
 {
@@ -175,23 +176,20 @@ namespace BoomBoxCartMod
             if (!PhotonNetwork.IsMasterClient)
                 return;
 
-            Logger.LogInfo("Syncing with others");
+            Logger.LogInfo($"Syncing with others - in queue: {data.playbackQueue.Count}");
 
-            if (Instance.RestoreBoomboxes.Value)
-            {
-                photonView.RPC( // Set data key, to restore to the same cart across clients
-                    "SetData",
-                    RpcTarget.Others,
-                    data.key,
-                    data.playbackQueue.Count,
-                    PhotonNetwork.LocalPlayer.ActorNumber
-                );
-            }
+            photonView.RPC( // Set data key, to restore to the same cart across clients
+                "SetData",
+                RpcTarget.Others,
+                data.key,
+                Instance.RestoreBoomboxes.Value,
+                data.playbackQueue.Count,
+                PhotonNetwork.LocalPlayer.ActorNumber
+            );
 
             if (data.playbackQueue.Count > 0 && data.currentSong?.Url != null)
             {
-                if (PhotonNetwork.IsMasterClient) 
-                    isAwaitingSyncPlayback = true;
+                isAwaitingSyncPlayback = true;
                 startPlayBackOnDownload = data.isPlaying && Instance.AutoResume.Value;
                 data.isPlaying = false;
                 downloadHelper.DownloadQueue(GetCurrentSongIndex());
@@ -201,38 +199,44 @@ namespace BoomBoxCartMod
                 data.playbackQueue.Clear();
                 data.currentSong = null;
             }
-            /* Should not be necessary, since other clients do not restore the queue automatically
-            else
-            {
-                photonView.RPC(
-                    "DismissQueue",
-                    RpcTarget.All,
-                    PhotonNetwork.LocalPlayer.ActorNumber
-                );
-            }
-            */
 
             syncFinished = true;
         }
 
         [PunRPC]
-        public void SetData(string key, int queueSize, int requesterId)
+        public void SetData(string key, bool save, int queueSize, int requesterId)
         {
             if (requesterId != PhotonNetwork.MasterClient.ActorNumber)
                 return;
 
+            isAwaitingSyncPlayback = false;
+            syncFinished = false;
+            UpdateUIStatus("Ready to play music! Enter a Video URL");
+
             BoomboxData? foundData = Instance.data.GetBoomboxData().FirstOrDefault(data => data.key == key);
             if (foundData != null)
             {
-                data = foundData;
+                if (!save)
+                {
+                    Instance.data.GetBoomboxData().Remove(foundData);
+                    data = new BoomboxData();
+                    data.key = key;
+                }
+                else
+                {
+                    data = foundData;
+                    data.isPlaying = false;
+                }
             }
             else
             {
+                data = new BoomboxData();
                 data.key = key;
-                Instance.data.GetBoomboxData().Add(data);
+                if (save)
+                    Instance.data.GetBoomboxData().Add(data);
             }
 
-            if (data.playbackQueue.Count < queueSize)
+            if (data.playbackQueue.Count != queueSize)
             {
                 photonView.RPC(
                     "RequestFullSync",
@@ -241,7 +245,8 @@ namespace BoomBoxCartMod
                 );
             }
 
-            TogglePlaying(false);
+            GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+            CleanupCurrentPlayback();
         }
 
         public static long GetCurrentTimeMilliseconds()
@@ -296,17 +301,14 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (audioSource.clip == clip)
+            if (audioSource.clip != clip)
             {
-                audioSource.Play();
-                TogglePlaying(true);
-                return;
+                CleanupCurrentPlayback(); // Probably unnecessary
+                audioSource.clip = clip;
+                SetQuality(qualityLevel);
+                UpdateAudioRangeBasedOnVolume(audioSource.volume);
+                audioSource.Play(); // Need to call twice for some reason for MasterClient only autoresume
             }
-
-            CleanupCurrentPlayback(); // Probably unnecessary
-            audioSource.clip = clip;
-            SetQuality(qualityLevel);
-            UpdateAudioRangeBasedOnVolume(audioSource.volume);
             audioSource.Play();
             TogglePlaying(true);
 
@@ -338,19 +340,6 @@ namespace BoomBoxCartMod
 			*/
 
             bool ownRequest = requesterId == PhotonNetwork.LocalPlayer.ActorNumber;
-
-            /* Should not be necessary
-            (string cleanedUrl, int seconds) = DownloadHelper.IsValidVideoUrl(url);
-            if (string.IsNullOrEmpty(cleanedUrl))
-			{
-				Logger.LogError($"Invalid Video URL: {url}");
-				if (ownRequest)
-				{
-					UpdateUIStatus("Error: Invalid Video URL.");
-				}
-				return;
-			}
-			*/
 
             AudioEntry song = new AudioEntry((DownloadHelper.songTitles.ContainsKey(url) ? DownloadHelper.songTitles[url] : "Unknown Title"), url);
             song.StartTime = seconds;
@@ -448,6 +437,22 @@ namespace BoomBoxCartMod
             if (index < 0 || index >= data.playbackQueue.Count || newIndex < 0 || newIndex >= data.playbackQueue.Count || index == newIndex)
             {
                 Logger.LogError($"MoveQueueItem RPC received with invalid indices: {index}, {newIndex}, queue count: {data.playbackQueue.Count}");
+                if (PhotonNetwork.IsMasterClient)
+                {
+                    var player = PhotonNetwork.PlayerList.FirstOrDefault(player => player.ActorNumber == requesterId);
+                    if (player != null && !player.IsLocal && Instance.baseListener.GetAllModUsers().Contains(requesterId))
+                    {
+                        HandleLateJoin(player);
+                    }
+                }
+                else
+                {
+                    photonView.RPC(
+                        "RequestFullSync",
+                        RpcTarget.MasterClient,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                }
                 return;
             }
 
@@ -468,6 +473,22 @@ namespace BoomBoxCartMod
             if (index < 0 || index > data.playbackQueue.Count)
             {
                 Logger.LogError($"RemoveQueueItem RPC received with wrong index: index={index}, songCount={data.playbackQueue.Count}, requesterId={requesterId}");
+                if (PhotonNetwork.IsMasterClient)
+                {
+                    var player = PhotonNetwork.PlayerList.FirstOrDefault(player => player.ActorNumber == requesterId);
+                    if (player != null && !player.IsLocal && Instance.baseListener.GetAllModUsers().Contains(requesterId))
+                    {
+                        HandleLateJoin(player);
+                    }
+                }
+                else
+                {
+                    photonView.RPC(
+                        "RequestFullSync",
+                        RpcTarget.MasterClient,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                }
                 return;
             }
             //Logger.LogInfo($"RemoveQueueItem RPC received: index={index}");
@@ -596,55 +617,45 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            //Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId} -- currentSong={currentSong != null}, playbackQueueSize={playbackQueue.Count}");
+            //Logger.LogInfo($"PlayPausePlayBack RPC received: startPlaying={startPlaying}, startTime={startTime}, requesterId={requesterId}, currentClip={data.currentSong?.GetAudioClip() != null}, playbackQueueSize={data.playbackQueue.Count}");
 
-            if (startPlaying != data.isPlaying)
+            string playPauseText;
+            if (startPlaying)
             {
-                string playPauseText;
-                if (startPlaying)
+                if (data.currentSong?.GetAudioClip() == null)
                 {
-                    if (data.currentSong == null)
+                    if (PhotonNetwork.IsMasterClient)
                     {
-                        if (PhotonNetwork.IsMasterClient)
-                        {
-                            photonView.RPC(
-                                "SyncPlayback",
-                                RpcTarget.All,
-                                -1,
-                                Boombox.GetCurrentTimeMilliseconds(),
-                                PhotonNetwork.LocalPlayer.ActorNumber
-                            );
-                        }
-                        return;
+                        photonView.RPC(
+                            "SyncPlayback",
+                            RpcTarget.All,
+                            -1,
+                            Boombox.GetCurrentTimeMilliseconds(),
+                            PhotonNetwork.LocalPlayer.ActorNumber
+                        );
                     }
-                    StartPlayBack();
-                    playPauseText = "Started";
+                    return;
                 }
-                else
-                {
-                    PausePlayBack();
-                    playPauseText = "Paused";
-                }
-                //Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
-                //UpdateUIStatus($"{playPauseText} Playback");
-            }
-            else if (!startPlaying)
-            {
                 StartPlayBack();
-                PausePlayBack();
+                playPauseText = "Started";
             }
+            else
+            {
+                if (audioSource.clip != data.currentSong?.GetAudioClip() && data.currentSong?.GetAudioClip() != null)
+                {
+                    StartPlayBack(); // Setup time etc.
+                }
+                PausePlayBack();
+                playPauseText = "Paused";
+            }
+            //Logger.LogInfo($"Playback {playPauseText} by player {requesterId}");
+            //UpdateUIStatus($"{playPauseText} Playback");
 
             SetPlaybackTime(startTime);
 
             if (data.isPlaying)
             {
                 UpdateUIStatus($"Now playing: {(data.currentSong?.Url == null ? "Unkown" : data.currentSong?.Title)}");
-
-                if (PhotonNetwork.IsMasterClient && MonstersCanHearMusic
-                    && EnemyDirector.instance != null && data.currentSong != null && transform?.position != null
-                ) {
-                    EnemyDirector.instance.SetInvestigate(transform.position, 5f);
-                }
             }
         }
 
@@ -790,16 +801,14 @@ namespace BoomBoxCartMod
 
         private async void HandleLateJoin(Photon.Realtime.Player player)
         {
-            if (Instance.RestoreBoomboxes.Value)
-            {
-                photonView.RPC( // Set data key, to restore to the same cart across clients
-                    "SetData",
-                    player,
-                    data.key,
-                    0,
-                    PhotonNetwork.LocalPlayer.ActorNumber
-                );
-            }
+            photonView.RPC( // Set data key, to restore to the same cart across clients
+                "SetData",
+                player,
+                data.key,
+                Instance.RestoreBoomboxes.Value,
+                0,
+                PhotonNetwork.LocalPlayer.ActorNumber
+            );
 
             photonView.RPC( // Set index and queue
                 "SyncQueue",
@@ -825,7 +834,8 @@ namespace BoomBoxCartMod
 
             if (audioSource?.clip != null) 
             { // Not worth starting the download of the next song otherwise
-                downloadHelper.DownloadQueue(GetCurrentSongIndex() + ((audioSource.time + 10 > audioSource.clip.length && audioSource.isPlaying) ? 1 : 0));
+                int downloadIndex = GetCurrentSongIndex() + ((audioSource.isPlaying && audioSource.time + 10 > audioSource.clip.length) ? 1 : 0);
+                downloadHelper.DownloadQueue(downloadIndex);
             }
         }
 
@@ -866,6 +876,44 @@ namespace BoomBoxCartMod
             Destroy(audioSource);
             Destroy(downloadHelper);
             Destroy(gameObject.GetComponent<BoomboxController>());
+        }
+
+        public void ResetData()
+        {
+            if (!PhotonNetwork.IsMasterClient)
+                return;
+
+            Logger.LogInfo($"Resetting Boombox {photonView.ViewID}");
+
+            isAwaitingSyncPlayback = false;
+            startPlayBackOnDownload = true;
+            UpdateUIStatus("Ready to play music! Enter a Video URL");
+            CleanupCurrentPlayback();
+            downloadHelper.DismissDownloadQueue();
+
+            var dataStore = Instance.data.GetBoomboxData();
+            int index = dataStore.Count;
+
+            if (dataStore.Contains(data)) {
+                index = dataStore.IndexOf(data);
+                dataStore.Remove(data);
+            }
+
+            data = new BoomboxData();
+
+            if (Instance.RestoreBoomboxes.Value)
+            {
+                dataStore.Insert(index, data);
+            }
+
+            photonView.RPC(
+               "SetData",
+               RpcTarget.Others,
+               data.key,
+               Instance.RestoreBoomboxes.Value,
+               data.playbackQueue.Count,
+               PhotonNetwork.LocalPlayer.ActorNumber
+            );
         }
 
         public class BoomboxData

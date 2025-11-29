@@ -1,4 +1,8 @@
 # Changelog
+## 1.2.9
+ - Fix Auto Resume
+ - Add a button to masterclient gui to reset cart data
+ - Fix some sync issues
 ## 1.2.8
  - Fix Audio Download causing game to stutter (stream audio from storage instead of loading all instantly)
  - Fix displayed value in gui for personal volume

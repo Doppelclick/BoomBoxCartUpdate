@@ -215,17 +215,20 @@ namespace BoomBoxCartMod
         [PunRPC]
         public void ReportDownloadError(int actorNumber, string url, string errorMessage)
         {
+            if (actorNumber == PhotonNetwork.LocalPlayer.ActorNumber)
+            {
+                boomboxParent.UpdateUIStatus($"Error: {errorMessage}");
+            }
+            
+            if (!PhotonNetwork.IsMasterClient)
+                return;
+
             Logger.LogError($"Player {actorNumber} reported download error for {url}: {errorMessage}");
 
             if (!downloadErrors.ContainsKey(url))
                 downloadErrors[url] = new HashSet<int>();
 
             downloadErrors[url].Add(actorNumber);
-
-            if (actorNumber == PhotonNetwork.LocalPlayer.ActorNumber)
-            {
-                boomboxParent.UpdateUIStatus($"Error: {errorMessage}");
-            }
         }
 
         [PunRPC]
@@ -471,7 +474,7 @@ namespace BoomBoxCartMod
         [PunRPC]
         public void ReportDownloadComplete(string url, int actorNumber)
         {
-            if (!PhotonNetwork.IsMasterClient)
+            if (!PhotonNetwork.IsMasterClient || url == null)
                 return;
 
             if (!downloadsReady.ContainsKey(url))
@@ -480,21 +483,20 @@ namespace BoomBoxCartMod
             if (downloadErrors.ContainsKey(url) && downloadErrors[url].Contains(actorNumber))
                 downloadErrors[url].Remove(actorNumber);
 
-            if (boomboxParent.audioSource.isPlaying && boomboxParent.data.isPlaying) // Handle e.g. late join
+            if (!boomboxParent.isAwaitingSyncPlayback && boomboxParent.data.currentSong?.Url == url) // Handle e.g. late join
             {
                 PhotonNetwork.CurrentRoom.Players.TryGetValue(actorNumber, out Player targetPlayer);
                 if (!downloadsReady[url].Contains(actorNumber) && targetPlayer != null)
                 {
-                    if (boomboxParent.data.currentSong?.Url == url)
-                    {
-                        photonView.RPC(
-                            "PlayPausePlayback",
-                            targetPlayer,
-                            true,
-                            boomboxParent.GetRelativePlaybackMilliseconds(),
-                            PhotonNetwork.LocalPlayer.ActorNumber
-                        );
-                    }
+                    Logger.LogInfo($"Player {actorNumber} reported ready late. Sending start playback.");
+
+                    photonView.RPC(
+                        "PlayPausePlayback",
+                        targetPlayer,
+                        boomboxParent.audioSource.isPlaying && boomboxParent.data.isPlaying,
+                        boomboxParent.GetRelativePlaybackMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
                 }
             }
             

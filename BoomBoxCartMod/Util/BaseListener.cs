@@ -57,7 +57,7 @@ namespace BoomBoxCartMod.Util
             base.OnPlayerLeftRoom(otherPlayer);
             modList.Remove(otherPlayer.ActorNumber);
 
-            Instance.logger.LogInfo("player left room");
+            Instance.logger.LogInfo($"Player {otherPlayer.ActorNumber} left the room.");
         }
 
         [PunRPC]

@@ -60,7 +60,7 @@ namespace BoomBoxCartMod.Util
 				throw new Exception($"ffmpeg executable was not found at {ffmpegBinPath} after extraction. Internet problem? Not on Windows problem?");
 			}
 
-			Logger.LogInfo("Initialization complete.");
+			Logger.LogInfo("DL initialization complete.");
 		}
 
 		private static async Task DownloadFileAsync(string url, string destinationPath)

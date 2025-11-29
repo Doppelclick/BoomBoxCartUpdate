@@ -27,8 +27,7 @@ namespace BoomBoxCartMod
         private float lastSentSongTimePerc = -1f;
 
         // Volume
-        private float normalizedVolume = 0.3f; // norm volume is 0-1, actual volume is 0-maxVolumeLimit (in boombox.cs) ((1 is so loud))
-        private float lastSentNormalizedVolume = 0.3f;
+        private float lastSentVolume = 0.3f;
         private bool isVolumeSliderBeingDragged = false; // used to apply changes on slider release
         // Individual
         private bool isIndividualVolumeBeingDragged = false;
@@ -36,7 +35,7 @@ namespace BoomBoxCartMod
 
         // Quality
         private int qualityLevel = 3;
-        private string[] qualityLabels = new string[] { "REALLY Low (You Freak)", "Low", "Medium-Low", "Medium-High (Recommended)", "High" };
+        private string[] qualityLabels = new string[] { "REALLY Low (You Freak)", "Low", "Medium-Low", "Medium-High", "High" };
         private bool isQualitySliderBeingDragged = false;
         private int lastSentQualityLevel = 3;
 
@@ -79,6 +78,10 @@ namespace BoomBoxCartMod
         private Vector2 scrollPosition = Vector2.zero; // Main Scroll View
         private Vector2 queueScrollPosition = Vector2.zero; // New Queue Scroll View
 
+        private const float refreshHoldTime = 5f;
+        private const int maxRefreshSymbols = 5;
+        private float? refreshObjectStart = null;
+        private bool refreshObjectSent = false;
         private string lastUrl = null;
 
         private void Awake()
@@ -148,7 +151,8 @@ namespace BoomBoxCartMod
                 }
             }
 
-            if (isTimeSliderBeingDragged && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
+
+            if (isTimeSliderBeingDragged && ((Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame) || songIndexForTime != boombox.GetCurrentSongIndex()))
             {
                 isTimeSliderBeingDragged = false;
 
@@ -176,6 +180,12 @@ namespace BoomBoxCartMod
                 //Logger.LogInfo("Quality slider released, sending qualtiy update");
                 SendQualityUpdate();
             }
+
+            if (refreshObjectStart != null && Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
+            {
+                refreshObjectStart = null;
+                refreshObjectSent = false;
+            }
         }
 
         public void ShowUI()
@@ -197,17 +207,21 @@ namespace BoomBoxCartMod
                 Cursor.visible = true;
                 Cursor.lockState = CursorLockMode.None; // TODO: Does not work properly
 
-                if (boombox != null)
-                {
-                    normalizedVolume = boombox.audioSource.volume / boombox.data.personalVolumePercentage;
-                    lastSentNormalizedVolume = normalizedVolume;
-                    qualityLevel = Boombox.qualityLevel;
-                    lastSentQualityLevel = qualityLevel;
-                }
+                UpdateDataFromBoomBox();
 
                 //Logger.LogInfo("BoomboxUI shown");
 
                 UpdateStatusFromBoombox();
+            }
+        }
+
+        public void UpdateDataFromBoomBox()
+        {
+            if (boombox != null)
+            {
+                lastSentVolume = boombox.data.absVolume;
+                qualityLevel = Boombox.qualityLevel;
+                lastSentQualityLevel = qualityLevel;
             }
         }
 
@@ -260,20 +274,30 @@ namespace BoomBoxCartMod
                         PhotonNetwork.LocalPlayer.ActorNumber
                     );
                 }
+                else if (songIndexForTime != boombox.GetCurrentSongIndex()) // If the song changed while we were dragging
+                {
+                    photonView?.RPC(
+                        "SyncPlayback",
+                        RpcTarget.All,
+                        boombox.GetCurrentSongIndex(),
+                        boombox.GetRelativePlaybackMilliseconds(),
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                }
             }
         }
 
         private void SendVolumeUpdate()
         {
             // only send if the volume has actually changed
-            if (normalizedVolume != lastSentNormalizedVolume)
+            if (boombox.data.absVolume != lastSentVolume)
             {
-                lastSentNormalizedVolume = normalizedVolume;
+                lastSentVolume = boombox.data.absVolume;
 
                 // update local volume
                 if (boombox.audioSource != null)
                 {
-                    float actualVolume = normalizedVolume * boombox.data.personalVolumePercentage;
+                    float actualVolume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
                     //Logger.LogInfo($"Setting volume locally to {actualVolume}");
                     boombox.audioSource.volume = actualVolume;
                 }
@@ -282,7 +306,7 @@ namespace BoomBoxCartMod
                 photonView?.RPC(
                     "UpdateVolume",
                     RpcTarget.All,
-                    normalizedVolume,
+                    boombox.data.absVolume,
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
             }
@@ -636,7 +660,7 @@ namespace BoomBoxCartMod
                 }
 
 
-                // Resume/Pause-Button
+                // Resume/Pause-Button  -- TODO: Fix showing Pause when restoring cart data and not playing
                 string pauseButtonText = (boombox.data.currentSong?.GetAudioClip() == null) ? 
                     "..." : boombox.audioSource.isPlaying ? "\u258C\u258C PAUSE" : "\u25B6 RESUME"; // || PAUSE or > RESUME
                 if (GUILayout.Button(pauseButtonText, buttonStyle, GUILayout.Height(40)))
@@ -646,7 +670,7 @@ namespace BoomBoxCartMod
                         photonView?.RPC(
                             "PlayPausePlayback",
                             RpcTarget.All,
-                            !boombox.data.isPlaying,
+                            !boombox.audioSource.isPlaying,
                             boombox.GetRelativePlaybackMilliseconds(),
                             PhotonNetwork.LocalPlayer.ActorNumber
                         );
@@ -713,7 +737,7 @@ namespace BoomBoxCartMod
 
                 // Volume Control Section
                 GUILayout.Space(15);
-                float displayPercentage = normalizedVolume * 100f;
+                float displayPercentage = boombox.data.absVolume * 100f;
                 GUILayout.Label($"Volume: {Mathf.Round(displayPercentage)}%", labelStyle);
 
                 GUILayout.BeginHorizontal();
@@ -725,10 +749,10 @@ namespace BoomBoxCartMod
                         isVolumeSliderBeingDragged = true;
                     }
 
-                    float newNormalizedVolume = GUILayout.HorizontalSlider(normalizedVolume, 0f, 1f, sliderStyle, GUI.skin.horizontalSliderThumb);
+                    float newNormalizedVolume = GUILayout.HorizontalSlider(boombox.data.absVolume, 0f, 1f, sliderStyle, GUI.skin.horizontalSliderThumb);
 
                     // if volume changed and we weren't already dragging, start tracking drag
-                    if (newNormalizedVolume != normalizedVolume)
+                    if (newNormalizedVolume != boombox.data.absVolume)
                     {
                         if (!isVolumeSliderBeingDragged) // Unnecessary check
                         {
@@ -738,11 +762,11 @@ namespace BoomBoxCartMod
                         // update local volume for immediate feedback while sliding
                         if (boombox != null && boombox.audioSource != null)
                         {
-                            float actualVolume = normalizedVolume * boombox.data.personalVolumePercentage;
+                            float actualVolume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
                             boombox.audioSource.volume = actualVolume;
                         }
 
-                        normalizedVolume = newNormalizedVolume;
+                        boombox.data.absVolume = newNormalizedVolume;
                     }
 
                 GUILayout.EndHorizontal();
@@ -765,7 +789,7 @@ namespace BoomBoxCartMod
                 // if volume changed and we weren't already dragging, start tracking drag
                 if (newPersonalVolume != boombox.data.personalVolumePercentage)
                 {
-                    isVolumeSliderBeingDragged = true;
+                    isIndividualVolumeBeingDragged = true;
                     boombox.data.personalVolumePercentage = newPersonalVolume;
                     boombox.audioSource.volume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
                 }
@@ -812,7 +836,7 @@ namespace BoomBoxCartMod
                 if (newQualityDownloads != applyQualityToDownloads)
                 { 
                     Boombox.ApplyQualityToDownloads = newQualityDownloads;
-                    // Logger.LogInfo($"Apply Quality Setting to Downloads: {newQualityDownloads}");
+                    //Logger.LogInfo($"Apply Quality Setting to Downloads: {newQualityDownloads}");
                 }
 
 
@@ -824,7 +848,7 @@ namespace BoomBoxCartMod
                 if (newMonstersCanHear != monstersCanHear)
                 {
                     Boombox.MonstersCanHearMusic = newMonstersCanHear;
-                    // Logger.LogInfo($"Monsters can hear audio: {newMonstersCanHear}");
+                    //Logger.LogInfo($"Monsters can hear audio: {newMonstersCanHear}");
                 }
 
                 // Loop Queue Toggle -- TODO: possibly only allow master client to set this
@@ -841,7 +865,7 @@ namespace BoomBoxCartMod
                     );
                     /*
                     boombox.LoopQueue = newLoop;
-                    // Logger.LogInfo($"Looping Queue: {newLoop}");
+                    //Logger.LogInfo($"Looping Queue: {newLoop}");
                     */
                 }
 
@@ -853,7 +877,7 @@ namespace BoomBoxCartMod
                 if (newLightsOn != lightsOn && visualEffects != null)
                 {
                     visualEffects.SetLights(newLightsOn);
-                    // Logger.LogInfo($"Visual Effects Enabled: {lightsOn}");
+                    //Logger.LogInfo($"Visual Effects Enabled: {lightsOn}");
                 }
 
 
@@ -867,7 +891,7 @@ namespace BoomBoxCartMod
                     {
                         visualizer = gameObject.AddComponent<Visualizer>();
                         visualizer.audioSource = boombox.audioSource;
-                        // Logger.LogInfo($"Visualizer Active: {visualizerActive}");
+                        //Logger.LogInfo($"Visualizer Active: {visualizerActive}");
                     }
                     else
                     {
@@ -885,7 +909,30 @@ namespace BoomBoxCartMod
         private void DrawQueue(Boombox boombox)
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label("🎶 Playback Queue", queueHeaderStyle);
+            GUILayout.Label(" Playback Queue", queueHeaderStyle);
+
+            // Refresh cart object for everyone
+            if (PhotonNetwork.IsMasterClient)
+            {
+                float timeDiff = Time.time - (refreshObjectStart ?? Time.time);
+                int timeBracket = 1 + (int)Mathf.Floor(timeDiff / (refreshHoldTime / maxRefreshSymbols)); // Allow up to {maxRefreshSymbols} "!"'s - after that the text returns to the default value
+                string buttonText = (timeDiff > 0 && timeDiff <= refreshHoldTime) ? new string('!', timeBracket) + new string('.', Math.Max(0, maxRefreshSymbols - timeBracket)) : "RESET";
+                
+                if (GUILayout.RepeatButton(buttonText, smallButtonStyle))
+                {
+                    if (refreshObjectStart == null)
+                    {
+                        refreshObjectStart = Time.time;
+                    }
+                    else if (!refreshObjectSent && timeDiff >= refreshHoldTime)
+                    {
+                        boombox.ResetData();
+                        lastUrl = null;
+                        refreshObjectSent = true;
+                    }
+                }
+            }
+
             // Dismiss Queue
             if (GUILayout.Button("Dismiss Queue", smallButtonStyle))
             {
@@ -905,7 +952,7 @@ namespace BoomBoxCartMod
 
                 if (fullQueue.Count == 0) // && currentIndex == -1   Not necessary, may cause errors
                 {
-                    GUILayout.Label("Queue is empty and no song is playing.", labelStyle);
+                    GUILayout.Label(" Queue is empty and no song is playing.", labelStyle);
                 }
 
                 for (int i = 0; i < fullQueue.Count; i++)
@@ -1023,7 +1070,7 @@ namespace BoomBoxCartMod
 
         private void ShowErrorMessage(string message)
         {
-            Debug.LogError(message);
+            //Debug.LogError(message);
             errorMessage = message;
             errorMessageTime = Time.time + 3f;
         }
