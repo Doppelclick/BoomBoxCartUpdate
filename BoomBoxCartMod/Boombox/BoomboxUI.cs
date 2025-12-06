@@ -266,7 +266,8 @@ namespace BoomBoxCartMod
                     boombox.audioSource.time = actualTime;
 
                     // update volume for all others too
-                    photonView?.RPC(
+                    BaseListener.RPC(
+                        photonView, 
                         "SyncPlayback",
                         RpcTarget.All,
                         boombox.GetCurrentSongIndex(),
@@ -276,7 +277,8 @@ namespace BoomBoxCartMod
                 }
                 else if (songIndexForTime != boombox.GetCurrentSongIndex()) // If the song changed while we were dragging
                 {
-                    photonView?.RPC(
+                    BaseListener.RPC(
+                        photonView, 
                         "SyncPlayback",
                         RpcTarget.All,
                         boombox.GetCurrentSongIndex(),
@@ -303,7 +305,8 @@ namespace BoomBoxCartMod
                 }
 
                 // update volume for all others too
-                photonView?.RPC(
+                BaseListener.RPC(
+                    photonView, 
                     "UpdateVolume",
                     RpcTarget.All,
                     boombox.data.absVolume,
@@ -328,7 +331,7 @@ namespace BoomBoxCartMod
 
                 /* Should not be a shared value really
                 // update qual for others too
-                photonView?.RPC(
+                BaseListener.RPC(
                     "UpdateQuality",
                     RpcTarget.All,
                     qualityLevel,
@@ -473,7 +476,7 @@ namespace BoomBoxCartMod
                 return;
 
             // Title Header
-            GUILayout.Label($"Control The Boombox In The Cart{(Boombox.audioMuted ? $" - MUTED({Instance.GlobalMuteKey.Value.ToString()})" : "")}", headerStyle);
+            GUILayout.Label($"Control The Boombox In The Cart{(Instance.baseListener.audioMuted ? $" - MUTED({Instance.GlobalMuteKey.Value.ToString()})" : "")}", headerStyle);
 
             // Main Horizontal Layout for Controls (Left) and Queue (Right)
             GUILayout.BeginHorizontal();
@@ -624,7 +627,8 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC(
+                        BaseListener.RPC(
+                            photonView, 
                             "SyncPlayback",
                             RpcTarget.All,
                             boombox.GetCurrentSongIndex(),
@@ -648,7 +652,8 @@ namespace BoomBoxCartMod
                     {
                         lastUrl = cleanedUrl;
                         // Use RequestSong to add a song to the queue, and initiate its download. It will start playing if the queue was empty before
-                        photonView?.RPC(
+                        BaseListener.RPC(
+                            photonView, 
                             "RequestSong",
                             RpcTarget.All,
                             cleanedUrl,
@@ -667,7 +672,8 @@ namespace BoomBoxCartMod
                 {
                     if (boombox.data.currentSong?.GetAudioClip() != null)
                     {
-                        photonView?.RPC(
+                        BaseListener.RPC(
+                            photonView, 
                             "PlayPausePlayback",
                             RpcTarget.All,
                             !boombox.audioSource.isPlaying,
@@ -683,7 +689,8 @@ namespace BoomBoxCartMod
                 {
                     if (boombox != null && boombox.audioSource?.clip != null)
                     {
-                        photonView?.RPC(
+                        BaseListener.RPC(
+                            photonView, 
                             "SyncPlayback",
                             RpcTarget.All,
                             boombox.GetCurrentSongIndex(),
@@ -857,7 +864,8 @@ namespace BoomBoxCartMod
                 bool newLoop = GUILayout.Toggle(loop, "Loop queue");
                 if (newLoop != loop && PhotonNetwork.IsMasterClient)
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView, 
                         "UpdateLooping",
                         RpcTarget.All,
                         newLoop,
@@ -936,7 +944,8 @@ namespace BoomBoxCartMod
             // Dismiss Queue
             if (GUILayout.Button("Dismiss Queue", smallButtonStyle))
             {
-                photonView.RPC(
+                BaseListener.RPC(
+                    photonView, 
                     "DismissQueue",
                     (PhotonNetwork.IsMasterClient ? RpcTarget.All : RpcTarget.MasterClient),
                     PhotonNetwork.LocalPlayer.ActorNumber
@@ -971,7 +980,8 @@ namespace BoomBoxCartMod
                         // 1. Song Title (takes up most of the space)
                         if (GUILayout.Button(displayText, styleToUse, GUILayout.ExpandWidth(true), GUILayout.Height(32)) &&! isCurrent)
                         {
-                            photonView.RPC(
+                            BaseListener.RPC(
+                                photonView,
                                 "SyncPlayback",
                                 RpcTarget.All,
                                 i,
@@ -989,7 +999,8 @@ namespace BoomBoxCartMod
                                 if (GUILayout.Button("▲", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
                                     // RPC Call to Boombox to move song up
-                                    photonView.RPC(
+                                    BaseListener.RPC(
+                                        photonView,
                                         "MoveQueueItem",
                                         RpcTarget.All,
                                         i,
@@ -1010,7 +1021,8 @@ namespace BoomBoxCartMod
                                 if (GUILayout.Button("▼", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
                                     // RPC Call to Boombox to move song down
-                                    photonView.RPC(
+                                    BaseListener.RPC(
+                                        photonView, 
                                         "MoveQueueItem",
                                         RpcTarget.All,
                                         i,
@@ -1029,7 +1041,8 @@ namespace BoomBoxCartMod
                             if (GUILayout.Button("X", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                             {
                                 // RPC Call to Boombox to remove song
-                                photonView.RPC(
+                                BaseListener.RPC(
+                                    photonView, 
                                     "RemoveQueueItem",
                                     RpcTarget.All,
                                     i,

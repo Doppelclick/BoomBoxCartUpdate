@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 using BepInEx.Logging;
 using BoomBoxCartMod.Patches;
 using System;
+using BoomBoxCartMod.Util;
 
 namespace BoomBoxCartMod
 {
@@ -52,7 +53,12 @@ namespace BoomBoxCartMod
 			int localPlayerId = PhotonNetwork.LocalPlayer.ActorNumber;
 			//Logger.LogInfo($"Local player {localPlayerId} requesting boombox control");
 
-			photonView.RPC("RequestControl", RpcTarget.MasterClient, localPlayerId);
+			BaseListener.RPC(
+                photonView,
+                "RequestControl",
+				RpcTarget.MasterClient,
+				localPlayerId
+			);
 		}
 
 		[PunRPC]
@@ -75,7 +81,12 @@ namespace BoomBoxCartMod
 			{
 				// Grant control to requester
 				//Logger.LogInfo($"Granting control to player {requesterId}");
-				photonView.RPC("SetController", RpcTarget.All, requesterId);
+				BaseListener.RPC(
+                    photonView,
+                    "SetController",
+					RpcTarget.All,
+					requesterId
+				);
 			}
 			else
 			{
@@ -132,7 +143,12 @@ namespace BoomBoxCartMod
 			if (currentControllerId == PhotonNetwork.LocalPlayer.ActorNumber)
 			{
 				//Logger.LogInfo($"Player {PhotonNetwork.LocalPlayer.ActorNumber} releasing boombox control");
-				photonView.RPC("RequestRelease", RpcTarget.MasterClient, PhotonNetwork.LocalPlayer.ActorNumber);
+				BaseListener.RPC(
+                    photonView,
+                    "RequestRelease",
+					RpcTarget.MasterClient,
+					PhotonNetwork.LocalPlayer.ActorNumber
+				);
 			}
 		}
 
@@ -145,7 +161,12 @@ namespace BoomBoxCartMod
 			if (currentControllerId == releaserId)
 			{
 				//Logger.LogInfo($"Master client processing release request from player {releaserId}");
-				photonView.RPC("SetController", RpcTarget.All, -1);
+				BaseListener.RPC(
+                    photonView,
+                    "SetController",
+					RpcTarget.All,
+					-1
+				);
 			}
 		}
 
@@ -155,7 +176,12 @@ namespace BoomBoxCartMod
 			if (playerActorNumber == currentControllerId && PhotonNetwork.IsMasterClient)
 			{
 				//Logger.LogInfo($"Player {playerActorNumber} released cart while controlling boombox - auto-releasing control");
-				photonView.RPC("SetController", RpcTarget.All, -1);
+				BaseListener.RPC(
+                    photonView,
+                    "SetController",
+					RpcTarget.All,
+					-1
+				);
 			}
 		}
 

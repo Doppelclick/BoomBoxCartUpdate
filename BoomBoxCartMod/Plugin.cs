@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using UnityEngine.UIElements;
 using UnityEngine.InputSystem;
 using UnityEngine;
+using Photon.Pun;
 
 namespace BoomBoxCartMod
 {
@@ -21,7 +22,7 @@ namespace BoomBoxCartMod
 	{
 		public const string modGUID = "Doppelclick.BoomboxCartUpgrade";
 		public const string modName = "BoomboxCartUpgrade";
-		public const string modVersion = "1.2.9";
+		public const string modVersion = "1.3.0";
 
 		private readonly Harmony harmony = new Harmony(modGUID);
         public BaseListener baseListener = null;
@@ -29,8 +30,34 @@ namespace BoomBoxCartMod
 		internal static BoomBoxCartMod instance;
 		internal ManualLogSource logger;
 
-		public bool modDisabled = false;
+		private bool modDisabledValue = false;
 		public PersistentData data;
+
+
+		public bool modDisabled
+		{
+			get => modDisabledValue;
+			set {
+                if (modDisabledValue != value)
+                {
+                    logger.LogInfo("Mod " + (value ? "Disabled" : "Enabled"));
+                }
+
+                modDisabledValue = value;
+
+                if (value && data != null)
+                {
+                    foreach (Boombox boombox in data.GetAllBoomboxes())
+                    {
+                        PhotonView? view = boombox.photonView;
+                        Destroy(boombox);
+                        view?.RefreshRpcMonoBehaviourCache(); // TODO: This does not actually work
+                    }
+                    data.GetAllBoomboxes().Clear();
+                    data.GetBoomboxData().Clear();
+                }
+            }
+		}
 
 		public ConfigEntry<Key> OpenUIKey { get; private set; }
         public ConfigEntry<Key> GlobalMuteKey { get; private set; }
@@ -50,9 +77,9 @@ namespace BoomBoxCartMod
             logger = BepInEx.Logging.Logger.CreateLogSource(modGUID);
 			logger.LogInfo("BoomBoxCartMod loaded!");
 
-			Task.Run(() => YoutubeDL.InitializeAsync().Wait());
-
 			harmony.PatchAll();
+
+			Task.Run(() => YoutubeDL.InitializeAsync().Wait());
 
 			OpenUIKey = Config.Bind("General", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
             GlobalMuteKey = Config.Bind("General", "GlobalMuteKey", Key.M, "Key to mute all playback.");

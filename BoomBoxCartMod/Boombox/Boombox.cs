@@ -44,7 +44,6 @@ namespace BoomBoxCartMod
         private AudioLowPassFilter lowPassFilter;
         public static int qualityLevel = 4; // 0 lowest, 4 highest
 
-        public static bool audioMuted = false;
         private static bool mutePressed = false;
 
         private void Awake()
@@ -69,7 +68,7 @@ namespace BoomBoxCartMod
             audioSource.reverbZoneMix = 1f;
             audioSource.spatialize = true;
             audioSource.loop = false; // Handled in Update() since we are using a queue
-            audioSource.mute = audioMuted;
+            audioSource.mute = Instance.baseListener.audioMuted;
             lowPassFilter = gameObject.AddComponent<AudioLowPassFilter>();
             lowPassFilter.enabled = false;
 
@@ -135,7 +134,8 @@ namespace BoomBoxCartMod
 
                 if (currentIndex == -1) // Current song not found in queue
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "SyncPlayback",
                         RpcTarget.All,
                         -1,
@@ -145,7 +145,8 @@ namespace BoomBoxCartMod
                 }
                 else if (currentIndex + 1 >= data.playbackQueue.Count) // Current song is at end of queue, stop playback or loop to the start if loopQueue is enabled
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "SyncPlayback",
                         RpcTarget.All,
                         LoopQueue ? 0 : -1,
@@ -155,7 +156,8 @@ namespace BoomBoxCartMod
                 }
                 else // Middle of queue, start playing the next song
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "SyncPlayback",
                         RpcTarget.All,
                         currentIndex + 1,
@@ -178,7 +180,8 @@ namespace BoomBoxCartMod
 
             Logger.LogInfo($"Syncing with others - in queue: {data.playbackQueue.Count}");
 
-            photonView.RPC( // Set data key, to restore to the same cart across clients
+            BaseListener.RPC( // Set data key, to restore to the same cart across clients
+                photonView,
                 "SetData",
                 RpcTarget.Others,
                 data.key,
@@ -238,7 +241,8 @@ namespace BoomBoxCartMod
 
             if (data.playbackQueue.Count != queueSize)
             {
-                photonView.RPC(
+                BaseListener.RPC(
+                    photonView,
                     "RequestFullSync",
                     RpcTarget.MasterClient,
                     PhotonNetwork.LocalPlayer.ActorNumber
@@ -404,7 +408,8 @@ namespace BoomBoxCartMod
             {
                 if (PhotonNetwork.IsMasterClient && !Instance.MasterClientDismissQueue.Value) // Only depends on the host's config setting
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "DismissQueue",
                         RpcTarget.All,
                         PhotonNetwork.LocalPlayer.ActorNumber
@@ -447,7 +452,8 @@ namespace BoomBoxCartMod
                 }
                 else
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "RequestFullSync",
                         RpcTarget.MasterClient,
                         PhotonNetwork.LocalPlayer.ActorNumber
@@ -483,7 +489,8 @@ namespace BoomBoxCartMod
                 }
                 else
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "RequestFullSync",
                         RpcTarget.MasterClient,
                         PhotonNetwork.LocalPlayer.ActorNumber
@@ -508,7 +515,8 @@ namespace BoomBoxCartMod
                         index %= data.playbackQueue.Count; // currentSongIndex == index
                         if (currentIndex < data.playbackQueue.Count || LoopQueue) // If the song was not the last in the queue or we want to loop
                         {
-                            photonView.RPC(
+                            BaseListener.RPC(
+                                photonView,
                                 "SyncPlayback",
                                 RpcTarget.All,
                                 index,
@@ -519,7 +527,8 @@ namespace BoomBoxCartMod
                         }
                     }
 
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "SyncPlayback",
                         RpcTarget.All,
                         -1,
@@ -544,7 +553,8 @@ namespace BoomBoxCartMod
             {
                 if (!PhotonNetwork.IsMasterClient)
                 {
-                    photonView.RPC(
+                    BaseListener.RPC(
+                        photonView,
                         "RequestFullSync",
                         RpcTarget.MasterClient,
                         PhotonNetwork.LocalPlayer.ActorNumber
@@ -579,7 +589,8 @@ namespace BoomBoxCartMod
 
             if (data.currentSong?.Url == null) // Should never happen
             {
-                photonView.RPC(
+                BaseListener.RPC(
+                    photonView,
                     "RemoveQueueItem",
                     RpcTarget.All,
                     newSongIndex,
@@ -599,7 +610,8 @@ namespace BoomBoxCartMod
             }
             else
             {
-                photonView.RPC(
+                BaseListener.RPC(
+                    photonView,
                     "PlayPausePlayback",
                     RpcTarget.All,
                     true,
@@ -626,7 +638,8 @@ namespace BoomBoxCartMod
                 {
                     if (PhotonNetwork.IsMasterClient)
                     {
-                        photonView.RPC(
+                        BaseListener.RPC(
+                            photonView,
                             "SyncPlayback",
                             RpcTarget.All,
                             -1,
@@ -770,13 +783,13 @@ namespace BoomBoxCartMod
 
             base.OnPlayerEnteredRoom(newPlayer);
 
-            if (PhotonNetwork.IsMasterClient)
+            if (PhotonNetwork.IsMasterClient &&! Instance.modDisabled)
             {
                 Logger.LogInfo($"New player {newPlayer.ActorNumber} joined - syncing current playback state");
 
                 Task.Run(async () =>
                 {
-                    BaseListener.photonView?.RPC(
+                    Instance.baseListener.photonView?.RPC(
                         "ModFeedbackCheck",
                         newPlayer,
                         BoomBoxCartMod.modVersion,
@@ -801,7 +814,8 @@ namespace BoomBoxCartMod
 
         private async void HandleLateJoin(Photon.Realtime.Player player)
         {
-            photonView.RPC( // Set data key, to restore to the same cart across clients
+            BaseListener.RPC( // Set data key, to restore to the same cart across clients
+                photonView,
                 "SetData",
                 player,
                 data.key,
@@ -810,7 +824,8 @@ namespace BoomBoxCartMod
                 PhotonNetwork.LocalPlayer.ActorNumber
             );
 
-            photonView.RPC( // Set index and queue
+            BaseListener.RPC( // Set index and queue
+                photonView,
                 "SyncQueue",
                 player,
                 GetCurrentSongIndex(),
@@ -818,14 +833,16 @@ namespace BoomBoxCartMod
                 PhotonNetwork.LocalPlayer.ActorNumber
             );
 
-            photonView.RPC(
+            BaseListener.RPC(
+                photonView,
                 "UpdateLooping",
                 player,
                 LoopQueue,
                 PhotonNetwork.LocalPlayer.ActorNumber
             );
 
-            photonView.RPC(
+            BaseListener.RPC(
+                photonView,
                 "UpdateVolume",
                 player,
                 data.absVolume,
@@ -876,6 +893,7 @@ namespace BoomBoxCartMod
             Destroy(audioSource);
             Destroy(downloadHelper);
             Destroy(gameObject.GetComponent<BoomboxController>());
+            photonView.RefreshRpcMonoBehaviourCache();
         }
 
         public void ResetData()
@@ -906,8 +924,9 @@ namespace BoomBoxCartMod
                 dataStore.Insert(index, data);
             }
 
-            photonView.RPC(
-               "SetData",
+            BaseListener.RPC(
+               photonView,
+                "SetData",
                RpcTarget.Others,
                data.key,
                Instance.RestoreBoomboxes.Value,

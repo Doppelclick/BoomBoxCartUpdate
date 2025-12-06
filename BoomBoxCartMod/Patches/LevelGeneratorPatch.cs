@@ -25,22 +25,22 @@ namespace BoomBoxCartMod.Patches
             if (__instance.gameObject == null)
                 return;
 
-            Logger.LogInfo("Level started, checking if other players are using the mod.");
-
             if (Instance.baseListener == null)
             {
                 Instance.baseListener = __instance.gameObject.AddComponent<BaseListener>();
             }
 
-            if (Instance.baseListener == null)
+            if (Instance.baseListener == null || !PhotonNetwork.IsConnected || Instance.modDisabled)
                 return;
 
-            Instance.baseListener.GetAllModUsers().Clear(); // Not really necessary
+            Logger.LogInfo("Level started, checking if other players are using the mod.");
 
-            if (PhotonNetwork.IsMasterClient)
+            Instance.baseListener.lastUserAmount = Instance.baseListener.GetAllModUsers().Count;
+            Instance.baseListener.GetAllModUsers().Clear();
+
+            if (PhotonNetwork.IsMasterClient && !Instance.modDisabled)
             {
-                Instance.modDisabled = false;
-                BaseListener.photonView?.RPC(
+                Instance.baseListener.photonView?.RPC(
                     "ModFeedbackCheck",
                     RpcTarget.Others,
                     BoomBoxCartMod.modVersion,

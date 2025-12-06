@@ -40,11 +40,30 @@ namespace BoomBoxCartMod.Patches
 				{
 					Task.Run(async () =>
 					{
+						Task.Delay(200);
+
 						float startTime = Time.time;
 						while (boombox.photonView != null)
 						{
+							if (Instance.baseListener == null)
+							{
+                                Task.Delay(200);
+                                continue;
+							}
+
 							var modUsers = Instance.baseListener.GetAllModUsers();
-							int count = 0;
+
+							if (modUsers.Count < Instance.baseListener.lastUserAmount && Time.time - startTime < 10) // Wait until ModFeedbackCheck RPC is returned
+                            {
+                                Task.Delay(200);
+								continue;
+                            }
+							else
+							{
+								startTime = Time.time;
+							}
+
+                            int count = 0;
 
 							foreach (var player in PhotonNetwork.PlayerList) {
                                 if (modUsers.Contains(player.ActorNumber) &&
@@ -56,19 +75,20 @@ namespace BoomBoxCartMod.Patches
 
 							if (count >= modUsers.Count)
 							{
-								boombox.SyncInitializeWithOthers();
 								break;
 							}
 
-                            if (Time.time - startTime > 10) // Wait max 10 seconds
+                            if (Time.time - startTime > 3) // Wait max 3 seconds
 							{
 								break;
                             }
                             Task.Delay(200);
                         }
-					});
+
+                        boombox.SyncInitializeWithOthers();
+                    });
 				}
-                //Logger.LogInfo($"Boombox component added to {__instance.name}");
+                Logger.LogInfo($"Boombox component added to {__instance.name}");
             }
 
             if (__instance.GetComponent<BoomboxController>() == null)

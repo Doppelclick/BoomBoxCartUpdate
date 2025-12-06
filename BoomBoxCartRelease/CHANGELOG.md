@@ -1,6 +1,7 @@
 # Changelog
 ## 1.3.0
- - Add ffmpeg Updater
+ - Add ffmpeg & yt-dl Updater
+ - Minimize log spam for players without the mod
 ## 1.2.9
  - Fix Auto Resume
  - Add a button to masterclient gui to reset cart data

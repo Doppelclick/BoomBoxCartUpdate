@@ -22,6 +22,7 @@ namespace BoomBoxCartMod.Util
 		private static readonly string baseFolder = Path.Combine(Directory.GetCurrentDirectory(), "BoomboxedCart");
         private static readonly string tempFolder = Path.Combine(baseFolder, "temp");
         //private const string YtDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp.exe";
+        private const string YTDLP_RELEASE_URL = "https://api.github.com/repos/yt-dlp/yt-dlp-Builds/releases/latest";
         private const string YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 		private const string FFMPEG_RELEASE_URL = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 		private const string FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
@@ -29,9 +30,10 @@ namespace BoomBoxCartMod.Util
 		private static readonly string ffmpegFolder = Path.Combine(baseFolder, "ffmpeg");
 		private static string ffmpegBinPath = Path.Combine(ffmpegFolder, "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
 
-        private static bool ffmpegValid = false;
+        private static bool ffmpegUpdateChecked = false;
+        private static bool ytDLPUpdateChecked = false;
 
-		public static async Task InitializeAsync()
+        public static async Task InitializeAsync()
 		{
 			if (!Directory.Exists(baseFolder))
 			{
@@ -43,41 +45,61 @@ namespace BoomBoxCartMod.Util
                 Directory.CreateDirectory(tempFolder);
             }
 
-			if (ffmpegValid)
-				return;
+
 
             if (!File.Exists(ytDlpPath))
 			{
 				Logger.LogInfo("yt-dlp not found. Downloading...");
-				await DownloadFileAsync(YTDLP_URL, ytDlpPath);
+				await DownloadFileAsync(YTDLP_URL, ytDlpPath, 1);
+                
+				Logger.LogInfo("yt-dlp download finished.");
+                ytDLPUpdateChecked = true;
 			}
-
-			bool needsFFmpeg = !File.Exists(ffmpegBinPath);
-			if (!needsFFmpeg && !Directory.Exists(Path.GetDirectoryName(ffmpegBinPath)))
+			else if (!ytDLPUpdateChecked)
 			{
-				needsFFmpeg = true;
-			}
+                Logger.LogInfo("yt-dlp found. Checking for updates...");
+
+                DateTime localBuildDate = File.GetLastWriteTimeUtc(ytDlpPath);
+                DateTime? latestReleaseDate = await GetLatestGithubReleaseDate(YTDLP_RELEASE_URL);
+
+                if (latestReleaseDate != null && localBuildDate.AddHours(24) < latestReleaseDate)
+                {
+                    Logger.LogInfo("yt-dlp update found. Downloading...");
+
+
+                    try
+                    {
+                        File.Delete(ytDlpPath);
+						await DownloadFileAsync(YTDLP_URL, ytDlpPath, 1);
+                    }
+                    catch (Exception e)
+                    {
+                        Logger.LogWarning($"Failed to delete old yt-dlp: {e.Message}");
+                    }
+                }
+                else
+                {
+                    Logger.LogInfo(latestReleaseDate == null ? "yt-dlp release date failed to parse." : "yt-dlp up to date.");
+                }
+            }
+
+			bool needsFFmpeg = !File.Exists(ffmpegBinPath) || !Directory.Exists(Path.GetDirectoryName(ffmpegBinPath));
 
 			if (needsFFmpeg)
 			{
 				Logger.LogInfo("ffmpeg not found. Downloading and extracting...");
 				await DownloadAndExtractFFmpegAsync();
 			}
-			else
+			else if (!ffmpegUpdateChecked)
 			{
                 Logger.LogInfo("ffmpeg found. Checking for updates...");
 
 				DateTime localBuildDate = File.GetLastWriteTimeUtc(ffmpegBinPath);
-                DateTime? latestReleaseDate = await GetLatestFFmpegReleaseDate();
+                DateTime? latestReleaseDate = await GetLatestGithubReleaseDate(FFMPEG_RELEASE_URL);
 
                 if (latestReleaseDate != null && localBuildDate.AddHours(24) < latestReleaseDate)
 				{
                     Logger.LogInfo("ffmpeg update found. Downloading and extracting...");
-
-                    if (Directory.Exists(Path.GetDirectoryName(ffmpegFolder)))
-                    {
-                        Directory.Delete(ffmpegFolder, true);
-                    }
 
                     await DownloadAndExtractFFmpegAsync();
                 }
@@ -87,23 +109,43 @@ namespace BoomBoxCartMod.Util
                 }
             }
 
-            if (!File.Exists(ffmpegBinPath))
-			{
-				throw new Exception($"ffmpeg executable was not found at {ffmpegBinPath} after extraction. Internet problem? Not on Windows problem?");
-			}
-			else
-			{
-				ffmpegValid = true;
-			}
 
-			Logger.LogInfo("DL initialization complete.");
-		}
+            if (!File.Exists(ytDlpPath))
+            {
+				BaseListener.ReportDownloaderStatus(false);
+                Logger.LogError($"yt-dlp executable was not found at {ytDlpPath}. Internet problem?");
+            }
+            else if (!File.Exists(ffmpegBinPath))
+            {
+				BaseListener.ReportDownloaderStatus(false);
+                Logger.LogError($"ffmpeg executable was not found at {ffmpegBinPath} after extraction. Internet problem? Not on Windows problem?");
+            }
+            else
+			{
+                if (!ytDLPUpdateChecked || !ffmpegUpdateChecked)
+					Logger.LogInfo("Yt-DL initialization complete.");	
+			
+				ytDLPUpdateChecked = true;
+				ffmpegUpdateChecked = true;
+                BaseListener.ReportDownloaderStatus(true);
+            }
+        }
 
-		private static async Task DownloadFileAsync(string url, string destinationPath)
+		private static async Task DownloadFileAsync(string url, string destinationPath, int timeout)
 		{
 			using HttpClient client = new();
-			byte[] data = await client.GetByteArrayAsync(url);
-			File.WriteAllBytes(destinationPath, data);
+            client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue(BoomBoxCartMod.modName, BoomBoxCartMod.modVersion));
+            client.Timeout = TimeSpan.FromMinutes(timeout);
+
+			try
+			{
+				byte[] data = await client.GetByteArrayAsync(url);
+				File.WriteAllBytes(destinationPath, data);
+			}
+			catch (Exception e)
+			{
+				Logger.LogError(e.Message);
+			}
 		}
 
 		private static async Task DownloadAndExtractFFmpegAsync()
@@ -127,7 +169,7 @@ namespace BoomBoxCartMod.Util
 
 				Logger.LogInfo($"Downloading FFmpeg from {FFMPEG_URL}...");
 
-				await DownloadFileAsync(FFMPEG_URL, zipPath);
+				await DownloadFileAsync(FFMPEG_URL, zipPath, 6);
 
 				if (!File.Exists(zipPath))
 				{
@@ -378,19 +420,28 @@ namespace BoomBoxCartMod.Util
 			}
 		}
 
-        private static async Task<DateTime?> GetLatestFFmpegReleaseDate()
+        private static async Task<DateTime?> GetLatestGithubReleaseDate(string url)
         {
             using (var client = new HttpClient())
             {
                 client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue(BoomBoxCartMod.modName, BoomBoxCartMod.modVersion));
-                var jsonRaw = await client.GetStringAsync(FFMPEG_RELEASE_URL);
+				client.Timeout = TimeSpan.FromSeconds(20);
 
-				var release = JsonUtility.FromJson<GitHubRelease>(jsonRaw);
-
-                if (release != null && !string.IsNullOrEmpty(release.published_at))
+				try
 				{
-                    return DateTime.Parse(release.published_at).ToUniversalTime();
-                }
+					var jsonRaw = await client.GetStringAsync(url);
+
+					var release = JsonUtility.FromJson<GitHubRelease>(jsonRaw);
+
+					if (release != null && !string.IsNullOrEmpty(release.published_at))
+					{
+						return DateTime.Parse(release.published_at).ToUniversalTime();
+					}
+				}
+				catch (Exception e) {
+					Logger.LogError(e.Message);
+					Logger.LogInfo($"Update check failed for url: {url}");
+				}
 
                 return null;
             }
