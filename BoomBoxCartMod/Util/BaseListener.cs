@@ -33,7 +33,30 @@ namespace BoomBoxCartMod.Util
             if (!modList.Contains(id))
             {
                 modList.Add(id);
+                SendModListUpdate();
             }
+        }
+
+        public void RemoveModUser(int id)
+        {
+            modList.Remove(id);
+            SendModListUpdate();
+        }
+
+        private void SendModListUpdate()
+        {
+            if (!PhotonNetwork.IsMasterClient || !PhotonNetwork.IsMasterClient)
+            {
+                return;
+            }
+
+            BaseListener.RPC(
+                photonView,
+                "UpdateModUsers",
+                RpcTarget.Others,
+                modList.ToArray(),
+                PhotonNetwork.LocalPlayer.ActorNumber
+            );
         }
 
         private void Update() // TODO: Do not do in gui while typing somehow
@@ -103,7 +126,7 @@ namespace BoomBoxCartMod.Util
                 }
                 else
                 {
-                    Instance.baseListener.modList.Remove(PhotonNetwork.LocalPlayer.ActorNumber);
+                    Instance.baseListener.RemoveModUser(PhotonNetwork.LocalPlayer.ActorNumber);
                 }
             }
             else if (PhotonNetwork.IsConnected)
@@ -115,12 +138,16 @@ namespace BoomBoxCartMod.Util
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
             }
+            else if (available)
+            {
+                Instance.modDisabled = false;
+            }
         }
 
         public override void OnPlayerLeftRoom(Photon.Realtime.Player otherPlayer)
         {
             base.OnPlayerLeftRoom(otherPlayer);
-            modList.Remove(otherPlayer.ActorNumber);
+            RemoveModUser(otherPlayer.ActorNumber);
 
             Instance.logger.LogInfo($"Player {otherPlayer.ActorNumber} left the room.");
         }
@@ -144,7 +171,7 @@ namespace BoomBoxCartMod.Util
                 }
                 else
                 {
-                    Instance.baseListener.GetAllModUsers().Remove(actorNumber);
+                    Instance.baseListener.RemoveModUser(actorNumber);
                     Instance.logger?.LogInfo($"Player {actorNumber} will not be joining the jam session.");
                 }
                 return;
@@ -161,6 +188,16 @@ namespace BoomBoxCartMod.Util
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
             }
+        }
+
+        [PunRPC]
+        public void UpdateModUsers(int[] modUsers, int actorNumber)
+        {
+            if (PhotonNetwork.IsMasterClient)
+                return;
+
+            modList.Clear();
+            modList.AddRange(modUsers);
         }
     }
 }

@@ -36,7 +36,7 @@ namespace BoomBoxCartMod.Patches
             Logger.LogInfo("Level started, checking if other players are using the mod.");
 
             Instance.baseListener.lastUserAmount = Instance.baseListener.GetAllModUsers().Count;
-            Instance.baseListener.GetAllModUsers().Clear();
+            Instance.baseListener.GetAllModUsers().Clear(); // No need to send UpdateModList RPC because every client does this
 
             if (PhotonNetwork.IsMasterClient && !Instance.modDisabled)
             {

@@ -1,4 +1,6 @@
 # Changelog
+## 1.3.1
+ - Non-MasterClient hotfix
 ## 1.3.0
  - Add ffmpeg & yt-dl Updater
  - Minimize log spam for players without the mod
