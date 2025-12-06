@@ -852,6 +852,7 @@ namespace BoomBoxCartMod
             if (audioSource?.clip != null) 
             { // Not worth starting the download of the next song otherwise
                 int downloadIndex = GetCurrentSongIndex() + ((audioSource.isPlaying && audioSource.time + 10 > audioSource.clip.length) ? 1 : 0);
+                downloadHelper.DismissDownloadQueue();
                 downloadHelper.DownloadQueue(downloadIndex);
             }
         }
