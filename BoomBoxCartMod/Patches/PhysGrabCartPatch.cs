@@ -36,58 +36,6 @@ namespace BoomBoxCartMod.Patches
 			{
 				Boombox boombox = __instance.gameObject.AddComponent<Boombox>();
                 Instance.data.InitializeBoomboxData(boombox);
-				if (PhotonNetwork.IsMasterClient)
-				{
-					Task.Run(async () =>
-					{
-						Task.Delay(200);
-
-						float startTime = Time.time;
-						while (boombox.photonView != null)
-						{
-							if (Instance.baseListener == null)
-							{
-                                Task.Delay(200);
-                                continue;
-							}
-
-							var modUsers = Instance.baseListener.GetAllModUsers();
-
-							if (modUsers.Count < Instance.baseListener.lastUserAmount && Time.time - startTime < 10) // Wait until ModFeedbackCheck RPC is returned
-                            {
-                                Task.Delay(200);
-								continue;
-                            }
-							else
-							{
-								startTime = Time.time;
-							}
-
-                            int count = 0;
-
-							foreach (var player in PhotonNetwork.PlayerList) {
-                                if (modUsers.Contains(player.ActorNumber) &&
-									PersistentData.GetBoomboxViewStatus(player, boombox.photonView.ViewID)
-								) {
-									count++;
-								}
-							}
-
-							if (count >= modUsers.Count)
-							{
-								break;
-							}
-
-                            if (Time.time - startTime > 3) // Wait max 3 seconds
-							{
-								break;
-                            }
-                            Task.Delay(200);
-                        }
-
-                        boombox.SyncInitializeWithOthers();
-                    });
-				}
                 Logger.LogInfo($"Boombox component added to {__instance.name}");
             }
 

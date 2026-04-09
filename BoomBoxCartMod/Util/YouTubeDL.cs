@@ -220,7 +220,7 @@ namespace BoomBoxCartMod.Util
 				try
 				{
 					string title = Boombox.GetSongTitle(videoUrl);
-					if (title == null)
+					if (string.IsNullOrWhiteSpace(title) || IsUnknownTitle(title))
 					{
 						title = await GetVideoTitleInternalAsync(videoUrl);
 						if (string.IsNullOrEmpty(title))
@@ -243,6 +243,18 @@ namespace BoomBoxCartMod.Util
 					throw ex;
 				}
 			});
+		}
+
+		private static bool IsUnknownTitle(string title)
+		{
+			if (string.IsNullOrWhiteSpace(title))
+			{
+				return true;
+			}
+
+			string trimmedTitle = title.Trim();
+			return trimmedTitle.Equals("Unknown Title", StringComparison.OrdinalIgnoreCase)
+				|| trimmedTitle.StartsWith("Unknown Title (", StringComparison.OrdinalIgnoreCase);
 		}
 
 
@@ -358,22 +370,23 @@ namespace BoomBoxCartMod.Util
 				ProcessStartInfo psi = new ProcessStartInfo
 				{
 					FileName = ytDlpPath,
-					Arguments = $"--get-title {url}",
+					Arguments = $"--skip-download --no-playlist --no-warnings --encoding utf-8 --print \"%(title)s\" \"{url}\"",
 					UseShellExecute = false,
 					RedirectStandardOutput = true,
 					RedirectStandardError = true,
-					CreateNoWindow = true
+					CreateNoWindow = true,
+					StandardOutputEncoding = Encoding.UTF8,
+					StandardErrorEncoding = Encoding.UTF8
 				};
 
 				//Logger.LogInfo($"Running yt-dlp to get title for: {url}");
 
 				using (var process = new Process { StartInfo = psi })
 				{
-					var tcs = new TaskCompletionSource<string>();
 					process.Start();
 
 					string title = await process.StandardOutput.ReadToEndAsync();
-					await process.StandardError.ReadToEndAsync();
+					string error = await process.StandardError.ReadToEndAsync();
 
 					var timeoutTask = Task.Delay(10000);
 					var processExitTask = Task.Run(() => process.WaitForExit());
@@ -388,6 +401,10 @@ namespace BoomBoxCartMod.Util
 					if (process.ExitCode != 0)
 					{
 						Logger.LogError($"yt-dlp error code: {process.ExitCode}");
+						if (!string.IsNullOrWhiteSpace(error))
+						{
+							Logger.LogWarning($"yt-dlp title fetch error: {error.Trim()}");
+						}
 						return "Unknown Title";
 					}
 
@@ -395,6 +412,7 @@ namespace BoomBoxCartMod.Util
 					//byte[] bytes = Encoding.Default.GetBytes(title);
 					//title = Encoding.UTF8.GetString(bytes);
 
+					title = title.Trim();
 					Logger.LogInfo($"Got video title: {title}");
 
 					if (!string.IsNullOrEmpty(title))

@@ -233,6 +233,10 @@ namespace BoomBoxCartMod
                 {
                     statusMessage = $"Downloading audio from {boombox.downloadHelper.GetCurrentDownloadUrl()}...";
                 }
+                else if (boombox.data.currentSong != null && boombox.data.pendingPlaybackStart)
+                {
+                    statusMessage = $"Loading: {boombox.data.currentSong.Title}";
+                }
                 else if (boombox.data.currentSong != null && boombox.data.isPlaying)
                 {
                     statusMessage = $"Now playing: {boombox.data.currentSong.Title}";
@@ -265,26 +269,11 @@ namespace BoomBoxCartMod
                     //Logger.LogInfo($"Setting time locally to {actualTime}");
                     boombox.audioSource.time = actualTime;
 
-                    // update volume for all others too
-                    BaseListener.RPC(
-                        photonView, 
-                        "SyncPlayback",
-                        RpcTarget.All,
-                        boombox.GetCurrentSongIndex(),
-                        boombox.GetRelativePlaybackMilliseconds(),
-                        PhotonNetwork.LocalPlayer.ActorNumber
-                    );
+                    boombox.CommitPlaybackSeek();
                 }
                 else if (songIndexForTime != boombox.GetCurrentSongIndex()) // If the song changed while we were dragging
                 {
-                    BaseListener.RPC(
-                        photonView, 
-                        "SyncPlayback",
-                        RpcTarget.All,
-                        boombox.GetCurrentSongIndex(),
-                        boombox.GetRelativePlaybackMilliseconds(),
-                        PhotonNetwork.LocalPlayer.ActorNumber
-                    );
+                    UpdateDataFromBoomBox();
                 }
             }
         }
@@ -304,14 +293,7 @@ namespace BoomBoxCartMod
                     boombox.audioSource.volume = actualVolume;
                 }
 
-                // update volume for all others too
-                BaseListener.RPC(
-                    photonView, 
-                    "UpdateVolume",
-                    RpcTarget.All,
-                    boombox.data.absVolume,
-                    PhotonNetwork.LocalPlayer.ActorNumber
-                );
+                boombox.SetVolumeLocal(boombox.data.absVolume);
             }
         }
 
@@ -625,16 +607,9 @@ namespace BoomBoxCartMod
                 // Rewind-Button (10 seconds back)
                 if (GUILayout.Button("<<", smallButtonStyle, GUILayout.Width(40), GUILayout.Height(40)))
                 {
-                    if (boombox != null && boombox.audioSource?.clip != null)
+                    if (boombox != null && boombox.data.currentSong != null)
                     {
-                        BaseListener.RPC(
-                            photonView, 
-                            "SyncPlayback",
-                            RpcTarget.All,
-                            boombox.GetCurrentSongIndex(),
-                            boombox.GetRelativePlaybackMilliseconds() + 10000L,
-                            PhotonNetwork.LocalPlayer.ActorNumber
-                        );
+                        boombox.JumpPlaybackBySeconds(-10f);
                     }
                 }
 
@@ -651,35 +626,20 @@ namespace BoomBoxCartMod
                     else if (lastUrl != cleanedUrl)
                     {
                         lastUrl = cleanedUrl;
-                        // Use RequestSong to add a song to the queue, and initiate its download. It will start playing if the queue was empty before
-                        BaseListener.RPC(
-                            photonView, 
-                            "RequestSong",
-                            RpcTarget.All,
-                            cleanedUrl,
-                            seconds,
-                            PhotonNetwork.LocalPlayer.ActorNumber
-                        );
+                        boombox.EnqueueSongLocal(cleanedUrl, seconds);
                         GUI.FocusControl(null);
                     }
                 }
 
 
                 // Resume/Pause-Button  -- TODO: Fix showing Pause when restoring cart data and not playing
-                string pauseButtonText = (boombox.data.currentSong?.GetAudioClip() == null) ? 
-                    "..." : boombox.audioSource.isPlaying ? "\u258C\u258C PAUSE" : "\u25B6 RESUME"; // || PAUSE or > RESUME
+                string pauseButtonText = (boombox.data.currentSong == null) ?
+                    "..." : boombox.data.isPlaying ? "\u258C\u258C PAUSE" : "\u25B6 RESUME"; // || PAUSE or > RESUME
                 if (GUILayout.Button(pauseButtonText, buttonStyle, GUILayout.Height(40)))
                 {
-                    if (boombox.data.currentSong?.GetAudioClip() != null)
+                    if (boombox.data.currentSong != null)
                     {
-                        BaseListener.RPC(
-                            photonView, 
-                            "PlayPausePlayback",
-                            RpcTarget.All,
-                            !boombox.audioSource.isPlaying,
-                            boombox.GetRelativePlaybackMilliseconds(),
-                            PhotonNetwork.LocalPlayer.ActorNumber
-                        );
+                        boombox.SetPlaybackStateLocal(!boombox.data.isPlaying);
                     }
                 }
 
@@ -687,16 +647,9 @@ namespace BoomBoxCartMod
                 // Fast-Forward-Button (10 seconds forward)
                 if (GUILayout.Button(">>", smallButtonStyle, GUILayout.Width(40), GUILayout.Height(40)))
                 {
-                    if (boombox != null && boombox.audioSource?.clip != null)
+                    if (boombox != null && boombox.data.currentSong != null)
                     {
-                        BaseListener.RPC(
-                            photonView, 
-                            "SyncPlayback",
-                            RpcTarget.All,
-                            boombox.GetCurrentSongIndex(),
-                            boombox.GetRelativePlaybackMilliseconds() - 10000L,
-                            PhotonNetwork.LocalPlayer.ActorNumber
-                        );
+                        boombox.JumpPlaybackBySeconds(10f);
                     }
                 }
 
@@ -780,7 +733,7 @@ namespace BoomBoxCartMod
 
                 // Volume Percentage Control Section
                 GUILayout.Space(15);
-                GUILayout.Label($"Personal Volume %: {Mathf.Round(boombox.data.personalVolumePercentage * 100.001f)}%", labelStyle);
+                GUILayout.Label($"Personal Volume Multiplier: {Mathf.Round(boombox.data.personalVolumePercentage * 100.001f)}%", labelStyle);
 
                 GUILayout.BeginHorizontal();
 
@@ -864,13 +817,7 @@ namespace BoomBoxCartMod
                 bool newLoop = GUILayout.Toggle(loop, "Loop queue");
                 if (newLoop != loop && PhotonNetwork.IsMasterClient)
                 {
-                    BaseListener.RPC(
-                        photonView, 
-                        "UpdateLooping",
-                        RpcTarget.All,
-                        newLoop,
-                        PhotonNetwork.LocalPlayer.ActorNumber
-                    );
+                    boombox.SetLoopQueueLocal(newLoop);
                     /*
                     boombox.LoopQueue = newLoop;
                     //Logger.LogInfo($"Looping Queue: {newLoop}");
@@ -944,12 +891,7 @@ namespace BoomBoxCartMod
             // Dismiss Queue
             if (GUILayout.Button("Dismiss Queue", smallButtonStyle))
             {
-                BaseListener.RPC(
-                    photonView, 
-                    "DismissQueue",
-                    (PhotonNetwork.IsMasterClient ? RpcTarget.All : RpcTarget.MasterClient),
-                    PhotonNetwork.LocalPlayer.ActorNumber
-                );
+                boombox.DismissQueueLocal();
                 lastUrl = null;
             }
             GUILayout.EndHorizontal();
@@ -967,7 +909,7 @@ namespace BoomBoxCartMod
                 for (int i = 0; i < fullQueue.Count; i++)
                 {
                     var entry = fullQueue[i];
-                    bool isCurrent = (i == currentIndex);
+                    bool isCurrent = i == currentIndex;
 
                     GUIStyle styleToUse = isCurrent ? currentSongStyle : queueEntryStyle;
 
@@ -980,14 +922,7 @@ namespace BoomBoxCartMod
                         // 1. Song Title (takes up most of the space)
                         if (GUILayout.Button(displayText, styleToUse, GUILayout.ExpandWidth(true), GUILayout.Height(32)) &&! isCurrent)
                         {
-                            BaseListener.RPC(
-                                photonView,
-                                "SyncPlayback",
-                                RpcTarget.All,
-                                i,
-                                Boombox.GetCurrentTimeMilliseconds(),
-                                PhotonNetwork.LocalPlayer.ActorNumber
-                            );
+                            boombox.SelectSongIndex(i);
                         }
 
                         // Add Control Buttons for all items except the currently playing song
@@ -998,15 +933,7 @@ namespace BoomBoxCartMod
                             {
                                 if (GUILayout.Button("▲", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
-                                    // RPC Call to Boombox to move song up
-                                    BaseListener.RPC(
-                                        photonView,
-                                        "MoveQueueItem",
-                                        RpcTarget.All,
-                                        i,
-                                        i - 1,
-                                        PhotonNetwork.LocalPlayer.ActorNumber
-                                    );
+                                    boombox.MoveQueueItemLocal(i, i - 1);
                                 }
                             }
                             else
@@ -1020,15 +947,7 @@ namespace BoomBoxCartMod
                             {
                                 if (GUILayout.Button("▼", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                                 {
-                                    // RPC Call to Boombox to move song down
-                                    BaseListener.RPC(
-                                        photonView, 
-                                        "MoveQueueItem",
-                                        RpcTarget.All,
-                                        i,
-                                        i + 1,
-                                        PhotonNetwork.LocalPlayer.ActorNumber
-                                    );
+                                    boombox.MoveQueueItemLocal(i, i + 1);
                                 }
                             }
                             else
@@ -1040,14 +959,7 @@ namespace BoomBoxCartMod
                             // 4. Dismiss/Remove Button
                             if (GUILayout.Button("X", smallButtonStyle, GUILayout.Width(25), GUILayout.Height(28)))
                             {
-                                // RPC Call to Boombox to remove song
-                                BaseListener.RPC(
-                                    photonView, 
-                                    "RemoveQueueItem",
-                                    RpcTarget.All,
-                                    i,
-                                    PhotonNetwork.LocalPlayer.ActorNumber
-                                );
+                                boombox.RemoveQueueItemLocal(i);
                             }
                         }
 
