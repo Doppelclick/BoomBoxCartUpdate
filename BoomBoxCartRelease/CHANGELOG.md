@@ -1,4 +1,7 @@
 # Changelog
+## 1.3.2
+ - Improved Stability
+ - Underglow better!!!
 ## 1.3.1
  - Non-MasterClient hotfix
 ## 1.3.0
