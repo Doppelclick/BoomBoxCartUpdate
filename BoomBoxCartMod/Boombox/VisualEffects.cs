@@ -78,7 +78,7 @@ namespace BoomBoxCartMod
             frontLight.type = LightType.Point;
             frontLight.range = BaseLightRange;
             frontLight.intensity = BaseIntensity;
-            frontLight.enabled = false;
+            frontLight.enabled = lightsOn;
 
             // Back Light
             GameObject back = new GameObject("BoomboxBackLight");
@@ -88,7 +88,7 @@ namespace BoomBoxCartMod
             backLight.type = LightType.Point;
             backLight.range = BaseLightRange;
             backLight.intensity = BaseIntensity;
-            backLight.enabled = false;
+            backLight.enabled = lightsOn;
         }
 
         private void Update()

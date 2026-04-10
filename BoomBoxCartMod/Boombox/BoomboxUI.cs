@@ -108,11 +108,8 @@ namespace BoomBoxCartMod
                 }
 
                 visualizer = GetComponent<Visualizer>();
-                if (visualizer == null)
-                {
-                    visualizer = gameObject.AddComponent<Visualizer>();
-                    visualizer.audioSource = boombox.audioSource;
-                }
+                boombox?.ApplyVisualStateFromData();
+                RefreshVisualComponentRefs();
 
                 if (photonView == null)
                 {
@@ -222,7 +219,14 @@ namespace BoomBoxCartMod
                 lastSentVolume = boombox.data.absVolume;
                 qualityLevel = Boombox.qualityLevel;
                 lastSentQualityLevel = qualityLevel;
+                RefreshVisualComponentRefs();
             }
+        }
+
+        private void RefreshVisualComponentRefs()
+        {
+            visualEffects = GetComponent<VisualEffects>();
+            visualizer = GetComponent<Visualizer>();
         }
 
         public void UpdateStatusFromBoombox()
@@ -831,32 +835,23 @@ namespace BoomBoxCartMod
 
                 // Visual Effects Toggle
                 GUILayout.Space(10);
-                bool lightsOn = visualEffects != null && visualEffects.AreLightsOn();
+                bool lightsOn = boombox.data.underglowEnabled;
                 bool newLightsOn = GUILayout.Toggle(lightsOn, "RGB Underglow enabled");
-                if (newLightsOn != lightsOn && visualEffects != null)
+                if (newLightsOn != lightsOn)
                 {
-                    visualEffects.SetLights(newLightsOn);
-                    //Logger.LogInfo($"Visual Effects Enabled: {lightsOn}");
+                    boombox.SetUnderglowEnabledLocal(newLightsOn);
+                    UpdateDataFromBoomBox();
                 }
 
 
                 // Visualizer Toggle
                 GUILayout.Space(10);
-                bool visualizerActive = visualizer != null;
+                bool visualizerActive = boombox.data.visualizerEnabled;
                 bool newVisualizerActive = GUILayout.Toggle(visualizerActive, "Audio Visualizer enabled");
                 if (newVisualizerActive != visualizerActive)
                 {
-                    if (newVisualizerActive)
-                    {
-                        visualizer = gameObject.AddComponent<Visualizer>();
-                        visualizer.audioSource = boombox.audioSource;
-                        //Logger.LogInfo($"Visualizer Active: {visualizerActive}");
-                    }
-                    else
-                    {
-                        Destroy(visualizer);
-                        visualizer = null;
-                    }
+                    boombox.SetVisualizerEnabledLocal(newVisualizerActive);
+                    UpdateDataFromBoomBox();
                 }
 
             // End Left Column

@@ -131,6 +131,7 @@ namespace BoomBoxCartMod
 
         private void Start()
         {
+            ApplyVisualStateFromData();
             LoadSharedStateFromRoom();
         }
 
@@ -403,6 +404,7 @@ namespace BoomBoxCartMod
                 float actualVolume = data.absVolume * data.personalVolumePercentage;
                 audioSource.volume = actualVolume;
                 UpdateAudioRangeBasedOnVolume(actualVolume);
+                ApplyVisualStateFromData();
 
                 bool songChanged = previousIndex != state.currentSongIndex || previousUrl != data.currentSong?.Url;
                 ApplySharedPlaybackState(songChanged);
@@ -485,6 +487,34 @@ namespace BoomBoxCartMod
                 }
 
                 UpdateUIStatus($"Ready to play: {data.currentSong.Title}");
+            }
+        }
+
+        public void ApplyVisualStateFromData()
+        {
+            VisualEffects effects = GetComponent<VisualEffects>();
+            if (effects == null)
+            {
+                effects = gameObject.AddComponent<VisualEffects>();
+            }
+
+            effects.SetLights(data.underglowEnabled);
+
+            Visualizer currentVisualizer = GetComponent<Visualizer>();
+            if (data.visualizerEnabled)
+            {
+                if (currentVisualizer == null)
+                {
+                    currentVisualizer = gameObject.AddComponent<Visualizer>();
+                }
+
+                currentVisualizer.audioSource = audioSource;
+                visualizer = currentVisualizer;
+            }
+            else if (currentVisualizer != null)
+            {
+                Destroy(currentVisualizer);
+                visualizer = null;
             }
         }
 
@@ -870,6 +900,20 @@ namespace BoomBoxCartMod
 
             data.loopQueue = loop;
             PublishSharedState();
+        }
+
+        public void SetUnderglowEnabledLocal(bool enabled)
+        {
+            data.underglowEnabled = enabled;
+            ApplyVisualStateFromData();
+            GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+        }
+
+        public void SetVisualizerEnabledLocal(bool enabled)
+        {
+            data.visualizerEnabled = enabled;
+            ApplyVisualStateFromData();
+            GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
         }
 
         public void DismissQueueLocal()
@@ -1267,6 +1311,7 @@ namespace BoomBoxCartMod
             }
 
             data = new BoomboxData();
+            ApplyVisualStateFromData();
 
             if (Instance.RestoreBoomboxes.Value)
             {
@@ -1285,6 +1330,8 @@ namespace BoomBoxCartMod
             public float absVolume = 0.6f;
             public float personalVolumePercentage = 0.35f; // make the range smaller than 0 to 1.0 volume! Allows players to set their volume % individually
             public bool loopQueue = false;
+            public bool underglowEnabled = false;
+            public bool visualizerEnabled = true;
             public bool pendingPlaybackStart = false;
             public int stateVersion = 0;
 
