@@ -29,143 +29,212 @@ namespace BoomBoxCartMod.Util
 		private static readonly string ytDlpPath = Path.Combine(baseFolder, "yt-dlp.exe");
 		private static readonly string ffmpegFolder = Path.Combine(baseFolder, "ffmpeg");
 		private static string ffmpegBinPath = Path.Combine(ffmpegFolder, "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
+		private static readonly object initializationLock = new object();
+		private static Task initializeTask = Task.CompletedTask;
 
         private static bool ffmpegUpdateChecked = false;
         private static bool ytDLPUpdateChecked = false;
+		private static bool isUpdatingResources = false;
+		private static string resourceUpdateStatus = string.Empty;
 
-        public static async Task InitializeAsync()
+		public static bool IsUpdatingResources => isUpdatingResources;
+		public static string ResourceUpdateStatus => string.IsNullOrWhiteSpace(resourceUpdateStatus) ? "Updating resources..." : resourceUpdateStatus;
+
+		public static Task InitializeAsync()
 		{
-			if (!Directory.Exists(baseFolder))
+			lock (initializationLock)
+			{
+				bool resourcesReady = File.Exists(ytDlpPath) && File.Exists(ffmpegBinPath);
+
+				if (initializeTask != null && !initializeTask.IsCompleted)
+				{
+					return initializeTask;
+				}
+
+				if (resourcesReady && ytDLPUpdateChecked && ffmpegUpdateChecked)
+				{
+					return Task.CompletedTask;
+				}
+
+				initializeTask = InitializeInternalAsync();
+				return initializeTask;
+			}
+		}
+
+		private static async Task InitializeInternalAsync()
+		{
+			SetResourceUpdateStatus("Checking downloader resources...", true);
+
+			try
 			{
 				Directory.CreateDirectory(baseFolder);
-			}
+				Directory.CreateDirectory(tempFolder);
 
-            if (!Directory.Exists(tempFolder))
-            {
-                Directory.CreateDirectory(tempFolder);
-            }
-
-
-
-            if (!File.Exists(ytDlpPath))
-			{
-				Logger.LogInfo("yt-dlp not found. Downloading...");
-				await DownloadFileAsync(YTDLP_URL, ytDlpPath, 1);
-                
-				Logger.LogInfo("yt-dlp download finished.");
-                ytDLPUpdateChecked = true;
-			}
-			else if (!ytDLPUpdateChecked)
-			{
-                Logger.LogInfo("yt-dlp found. Checking for updates...");
-
-                DateTime localBuildDate = File.GetLastWriteTimeUtc(ytDlpPath);
-                DateTime? latestReleaseDate = await GetLatestGithubReleaseDate(YTDLP_RELEASE_URL);
-
-                if (latestReleaseDate != null && localBuildDate.AddHours(24) < latestReleaseDate)
-                {
-                    Logger.LogInfo("yt-dlp update found. Downloading...");
-
-
-                    try
-                    {
-                        File.Delete(ytDlpPath);
-						await DownloadFileAsync(YTDLP_URL, ytDlpPath, 1);
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.LogWarning($"Failed to delete old yt-dlp: {e.Message}");
-                    }
-                }
-                else
-                {
-                    Logger.LogInfo(latestReleaseDate == null ? "yt-dlp release date failed to parse." : "yt-dlp up to date.");
-                }
-            }
-
-			bool needsFFmpeg = !File.Exists(ffmpegBinPath) || !Directory.Exists(Path.GetDirectoryName(ffmpegBinPath));
-
-			if (needsFFmpeg)
-			{
-				Logger.LogInfo("ffmpeg not found. Downloading and extracting...");
-				await DownloadAndExtractFFmpegAsync();
-			}
-			else if (!ffmpegUpdateChecked)
-			{
-                Logger.LogInfo("ffmpeg found. Checking for updates...");
-
-				DateTime localBuildDate = File.GetLastWriteTimeUtc(ffmpegBinPath);
-                DateTime? latestReleaseDate = await GetLatestGithubReleaseDate(FFMPEG_RELEASE_URL);
-
-                if (latestReleaseDate != null && localBuildDate.AddHours(24) < latestReleaseDate)
+				if (!File.Exists(ytDlpPath))
 				{
-                    Logger.LogInfo("ffmpeg update found. Downloading and extracting...");
+					SetResourceUpdateStatus("Updating resources: downloading yt-dlp...", true);
+					Logger.LogInfo("yt-dlp not found. Downloading...");
+					await DownloadFileAsync(YTDLP_URL, ytDlpPath, 1);
+					Logger.LogInfo("yt-dlp download finished.");
+				}
+				else if (!ytDLPUpdateChecked)
+				{
+					SetResourceUpdateStatus("Updating resources: checking yt-dlp...", true);
+					Logger.LogInfo("yt-dlp found. Checking for updates...");
 
-                    await DownloadAndExtractFFmpegAsync();
-                }
+					DateTime localBuildDate = File.GetLastWriteTimeUtc(ytDlpPath);
+					DateTime? latestReleaseDate = await GetLatestGithubReleaseDate(YTDLP_RELEASE_URL);
+
+					if (latestReleaseDate != null && localBuildDate.AddHours(24) < latestReleaseDate)
+					{
+						SetResourceUpdateStatus("Updating resources: updating yt-dlp...", true);
+						Logger.LogInfo("yt-dlp update found. Downloading...");
+						await DownloadFileAsync(YTDLP_URL, ytDlpPath, 1);
+					}
+					else
+					{
+						Logger.LogInfo(latestReleaseDate == null ? "yt-dlp release date failed to parse." : "yt-dlp up to date.");
+					}
+				}
+
+				ytDLPUpdateChecked = true;
+
+				bool needsFFmpeg = !File.Exists(ffmpegBinPath) || !Directory.Exists(Path.GetDirectoryName(ffmpegBinPath));
+
+				if (needsFFmpeg)
+				{
+					SetResourceUpdateStatus("Updating resources: downloading FFmpeg...", true);
+					Logger.LogInfo("ffmpeg not found. Downloading and extracting...");
+					await DownloadAndExtractFFmpegAsync();
+				}
+				else if (!ffmpegUpdateChecked)
+				{
+					SetResourceUpdateStatus("Updating resources: checking FFmpeg...", true);
+					Logger.LogInfo("ffmpeg found. Checking for updates...");
+
+					DateTime localBuildDate = File.GetLastWriteTimeUtc(ffmpegBinPath);
+					DateTime? latestReleaseDate = await GetLatestGithubReleaseDate(FFMPEG_RELEASE_URL);
+
+					if (latestReleaseDate != null && localBuildDate.AddHours(24) < latestReleaseDate)
+					{
+						SetResourceUpdateStatus("Updating resources: updating FFmpeg...", true);
+						Logger.LogInfo("ffmpeg update found. Downloading and extracting...");
+						await DownloadAndExtractFFmpegAsync();
+					}
+					else
+					{
+						Logger.LogInfo(latestReleaseDate == null ? "ffmpeg release date failed to parse." : "ffmpeg up to date.");
+					}
+				}
+
+				ffmpegUpdateChecked = true;
+
+				if (!File.Exists(ytDlpPath))
+				{
+					BaseListener.ReportDownloaderStatus(false);
+					Logger.LogError($"yt-dlp executable was not found at {ytDlpPath}. Internet problem?");
+					SetResourceUpdateStatus("Required media tools are unavailable.", false);
+				}
+				else if (!File.Exists(ffmpegBinPath))
+				{
+					BaseListener.ReportDownloaderStatus(false);
+					Logger.LogError($"ffmpeg executable was not found at {ffmpegBinPath} after extraction. Internet problem? Not on Windows problem?");
+					SetResourceUpdateStatus("Required media tools are unavailable.", false);
+				}
 				else
 				{
-                    Logger.LogInfo(latestReleaseDate == null ? "ffmpeg release date failed to parse." : "ffmpeg up to date.");
-                }
-            }
-
-
-            if (!File.Exists(ytDlpPath))
-            {
-				BaseListener.ReportDownloaderStatus(false);
-                Logger.LogError($"yt-dlp executable was not found at {ytDlpPath}. Internet problem?");
-            }
-            else if (!File.Exists(ffmpegBinPath))
-            {
-				BaseListener.ReportDownloaderStatus(false);
-                Logger.LogError($"ffmpeg executable was not found at {ffmpegBinPath} after extraction. Internet problem? Not on Windows problem?");
-            }
-            else
+					Logger.LogInfo("Yt-DL initialization complete.");
+					BaseListener.ReportDownloaderStatus(true);
+					SetResourceUpdateStatus(string.Empty, false);
+				}
+			}
+			catch (Exception ex)
 			{
-                if (!ytDLPUpdateChecked || !ffmpegUpdateChecked)
-					Logger.LogInfo("Yt-DL initialization complete.");	
-			
-				ytDLPUpdateChecked = true;
-				ffmpegUpdateChecked = true;
-                BaseListener.ReportDownloaderStatus(true);
-            }
+				Logger.LogError($"Downloader initialization failed: {ex.Message}");
+				BaseListener.ReportDownloaderStatus(false);
+				SetResourceUpdateStatus("Required media tools are unavailable.", false);
+			}
         }
+
+		private static void SetResourceUpdateStatus(string message, bool updating)
+		{
+			resourceUpdateStatus = message;
+			isUpdatingResources = updating;
+		}
 
 		private static async Task DownloadFileAsync(string url, string destinationPath, int timeout)
 		{
 			using HttpClient client = new();
             client.DefaultRequestHeaders.UserAgent.Add(new System.Net.Http.Headers.ProductInfoHeaderValue(BoomBoxCartMod.modName, BoomBoxCartMod.modVersion));
             client.Timeout = TimeSpan.FromMinutes(timeout);
+			string tempDownloadPath = destinationPath + ".download";
 
 			try
 			{
 				byte[] data = await client.GetByteArrayAsync(url);
-				File.WriteAllBytes(destinationPath, data);
+				Directory.CreateDirectory(Path.GetDirectoryName(destinationPath));
+
+				if (File.Exists(tempDownloadPath))
+				{
+					File.Delete(tempDownloadPath);
+				}
+
+				File.WriteAllBytes(tempDownloadPath, data);
+				ReplaceFile(tempDownloadPath, destinationPath);
 			}
 			catch (Exception e)
 			{
 				Logger.LogError(e.Message);
+				if (File.Exists(tempDownloadPath))
+				{
+					File.Delete(tempDownloadPath);
+				}
+				throw;
+			}
+		}
+
+		private static void ReplaceFile(string sourcePath, string destinationPath)
+		{
+			if (File.Exists(destinationPath))
+			{
+				string backupPath = destinationPath + ".bak";
+
+				if (File.Exists(backupPath))
+				{
+					File.Delete(backupPath);
+				}
+
+				File.Replace(sourcePath, destinationPath, backupPath, true);
+
+				if (File.Exists(backupPath))
+				{
+					File.Delete(backupPath);
+				}
+			}
+			else
+			{
+				File.Move(sourcePath, destinationPath);
 			}
 		}
 
 		private static async Task DownloadAndExtractFFmpegAsync()
 		{
 			string zipPath = Path.Combine(baseFolder, "ffmpeg.zip");
+			string stagingFolder = Path.Combine(tempFolder, "ffmpeg-staging-" + Guid.NewGuid().ToString("N"));
 
 			try
 			{
-				if (Directory.Exists(ffmpegFolder))
+				if (File.Exists(zipPath))
 				{
-					try
-					{
-						Directory.Delete(ffmpegFolder, true);
-						Directory.CreateDirectory(ffmpegFolder);
-					}
-					catch (Exception ex)
-					{
-						Logger.LogWarning($"Failed to clean ffmpeg folder: {ex.Message}");
-					}
+					File.Delete(zipPath);
 				}
+
+				if (Directory.Exists(stagingFolder))
+				{
+					Directory.Delete(stagingFolder, true);
+				}
+
+				Directory.CreateDirectory(stagingFolder);
 
 				Logger.LogInfo($"Downloading FFmpeg from {FFMPEG_URL}...");
 
@@ -178,29 +247,25 @@ namespace BoomBoxCartMod.Util
 
 				Logger.LogInfo($"Downloaded FFmpeg zip file. Extracting...");
 
-				ZipFile.ExtractToDirectory(zipPath, ffmpegFolder);
+				ZipFile.ExtractToDirectory(zipPath, stagingFolder);
 
 				File.Delete(zipPath);
 
-				if (!File.Exists(ffmpegBinPath))
+				string stagedFfmpegPath = Directory.GetFiles(stagingFolder, "ffmpeg.exe", SearchOption.AllDirectories).FirstOrDefault();
+
+				if (string.IsNullOrWhiteSpace(stagedFfmpegPath))
 				{
-					Logger.LogInfo("FFmpeg not found at expected path. Searching for ffmpeg.exe in extracted files...");
-
-					string[] ffmpegFiles = Directory.GetFiles(ffmpegFolder, "ffmpeg.exe", SearchOption.AllDirectories);
-
-					if (ffmpegFiles.Length > 0)
-					{
-						string newPath = ffmpegFiles[0];
-						Logger.LogInfo($"Found ffmpeg.exe at: {newPath}");
-
-						ffmpegBinPath = newPath;
-					}
-					else
-					{
-						Logger.LogError("ffmpeg.exe not found in extracted files. Uh oh!");
-						throw new Exception("ffmpeg.exe not found in extracted files. Uh oh!");
-					}
+					Logger.LogError("ffmpeg.exe not found in extracted files. Uh oh!");
+					throw new Exception("ffmpeg.exe not found in extracted files. Uh oh!");
 				}
+
+				if (Directory.Exists(ffmpegFolder))
+				{
+					Directory.Delete(ffmpegFolder, true);
+				}
+
+				Directory.Move(stagingFolder, ffmpegFolder);
+				ffmpegBinPath = Directory.GetFiles(ffmpegFolder, "ffmpeg.exe", SearchOption.AllDirectories).First();
 
 				Logger.LogInfo("FFmpeg extracted successfully.");
 			}
@@ -208,6 +273,18 @@ namespace BoomBoxCartMod.Util
 			{
 				Logger.LogError($"Error downloading or extracting FFmpeg: {ex.Message}");
 				throw;
+			}
+			finally
+			{
+				if (File.Exists(zipPath))
+				{
+					File.Delete(zipPath);
+				}
+
+				if (Directory.Exists(stagingFolder))
+				{
+					Directory.Delete(stagingFolder, true);
+				}
 			}
 		}
 

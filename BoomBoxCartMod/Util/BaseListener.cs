@@ -52,7 +52,7 @@ namespace BoomBoxCartMod.Util
 
             BaseListener.RPC(
                 photonView,
-                "UpdateModUsers",
+                nameof(UpdateModUsers),
                 RpcTarget.Others,
                 modList.ToArray(),
                 PhotonNetwork.LocalPlayer.ActorNumber
@@ -132,7 +132,7 @@ namespace BoomBoxCartMod.Util
             else if (PhotonNetwork.IsConnected)
             {
                 Instance.baseListener.photonView?.RPC(
-                    "ModFeedbackCheck",
+                    nameof(ModFeedbackCheck),
                     RpcTarget.MasterClient,
                     available ? BoomBoxCartMod.modVersion : "-1",
                     PhotonNetwork.LocalPlayer.ActorNumber
@@ -182,7 +182,7 @@ namespace BoomBoxCartMod.Util
                 Instance.logger.LogInfo($"Mod {(Instance.modDisabled ? "DISABLED" : "ENABLED")}. Current version: {BoomBoxCartMod.modVersion}, requested: {modVersion}");
                 
                 Instance.baseListener.photonView?.RPC(
-                    "ModFeedbackCheck",
+                    nameof(ModFeedbackCheck),
                     RpcTarget.MasterClient,
                     BaseListener.downloaderAvailable ? BoomBoxCartMod.modVersion : "-1",
                     PhotonNetwork.LocalPlayer.ActorNumber

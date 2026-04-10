@@ -65,6 +65,9 @@ namespace BoomBoxCartMod
         public ConfigEntry<bool> UseTimeStampOnce { get; private set; }
         public ConfigEntry<bool> RestoreBoomboxes { get; private set; }
         public ConfigEntry<bool> AutoResume { get; private set; }
+        public ConfigEntry<float> UnderglowBeatSpeed { get; private set; }
+        public ConfigEntry<float> UnderglowBassBias { get; private set; }
+
         public ConfigEntry<VisualizerPaused> VisualizerBehaviourPaused { get; private set; }
 
         private void Awake()
@@ -79,7 +82,7 @@ namespace BoomBoxCartMod
 
 			harmony.PatchAll();
 
-			Task.Run(() => YoutubeDL.InitializeAsync().Wait());
+            _ = YoutubeDL.InitializeAsync();
 
 			OpenUIKey = Config.Bind("General", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
             GlobalMuteKey = Config.Bind("General", "GlobalMuteKey", Key.M, "Key to mute all playback.");
@@ -87,6 +90,8 @@ namespace BoomBoxCartMod
             UseTimeStampOnce = Config.Bind("General", "UseTimeStampOnce", false, "Only use the timestamp provided with a Url the first time the song is played.");
             RestoreBoomboxes = Config.Bind("General", "RestoreBoomboxes", true, "Restore BoomBoxes and their Queues when you load back into a level.");
 		    AutoResume = Config.Bind("General", "AutoResume", false, "Automatically resume playback when entering a new lobby.");
+            UnderglowBeatSpeed = Config.Bind("General", "UnderglowBeatSpeed", 1.2f, new ConfigDescription("Scales how much detected beat energy speeds up the RGB underglow cycle. 0 = disabled, 6 = more aggressive.", new AcceptableValueRange<float>(0f, 6f)));
+            UnderglowBassBias = Config.Bind("General", "UnderglowBassBias", 0.8f, new ConfigDescription("Blends between broad beat response and isolated low-band response. 0 = broad response, 1 = strongest bass isolation.", new AcceptableValueRange<float>(0f, 1f)));
 			VisualizerBehaviourPaused = Config.Bind("General", "VisualizerPaused", VisualizerPaused.Hide, "Visualizer behaviour when music is paused.");
 
             logger.LogInfo("BoomBoxCartMod initialization finished!");

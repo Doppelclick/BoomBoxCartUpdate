@@ -229,7 +229,11 @@ namespace BoomBoxCartMod
         {
             if (boombox != null)
             {
-                if (boombox.downloadHelper.IsProcessingQueue() && boombox.data.currentSong != null && boombox.data.currentSong.GetAudioClip() == null)
+                if (YoutubeDL.IsUpdatingResources)
+                {
+                    statusMessage = YoutubeDL.ResourceUpdateStatus;
+                }
+                else if (boombox.downloadHelper.IsProcessingQueue() && boombox.data.currentSong != null && boombox.data.currentSong.GetAudioClip() == null)
                 {
                     statusMessage = $"Downloading audio from {boombox.downloadHelper.GetCurrentDownloadUrl()}...";
                 }
@@ -828,7 +832,7 @@ namespace BoomBoxCartMod
                 // Visual Effects Toggle
                 GUILayout.Space(10);
                 bool lightsOn = visualEffects != null && visualEffects.AreLightsOn();
-                bool newLightsOn = GUILayout.Toggle(lightsOn, "RGB Lights enabled");
+                bool newLightsOn = GUILayout.Toggle(lightsOn, "RGB Underglow enabled");
                 if (newLightsOn != lightsOn && visualEffects != null)
                 {
                     visualEffects.SetLights(newLightsOn);

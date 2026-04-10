@@ -319,10 +319,8 @@ namespace BoomBoxCartMod
             // Check if the song is still in the local playbackQueue (it might have been removed by a user)
             if (!boomboxParent.data.playbackQueue.Any(entry => entry.Url == url))
             {
-                //Logger.LogInfo($"Skipping download for {url}, item removed from queue.");
                 yield break;
             }
-
             string requestId = Guid.NewGuid().ToString();
 
             //if (isCurrentSong) isAwaitingSyncPlayback = true;
@@ -352,8 +350,8 @@ namespace BoomBoxCartMod
 
             // RPC call to start the download/sync process on ALL clients
             BaseListener.RPC(
-                photonView, 
-                "StartDownloadAndSync",
+                photonView,
+                nameof(StartDownloadAndSync),
                 RpcTarget.All,
                 url,
                 PhotonNetwork.LocalPlayer.ActorNumber
@@ -419,7 +417,7 @@ namespace BoomBoxCartMod
                     string timeoutMessage = $"Some players timed out. Continuing playback for {downloadsReady[url].Count} players.";
                     BaseListener.RPC(
                         photonView, 
-                        "NotifyPlayersOfErrors",
+                        nameof(NotifyPlayersOfErrors),
                         RpcTarget.All,
                         timeoutMessage
                     );
@@ -434,7 +432,7 @@ namespace BoomBoxCartMod
                 {
                     BaseListener.RPC(
                         photonView, 
-                        "NotifyPlayersOfErrors",
+                        nameof(NotifyPlayersOfErrors),
                         RpcTarget.All,
                         "Download timed out for all players."
                     );
@@ -471,7 +469,7 @@ namespace BoomBoxCartMod
                 boomboxParent?.HandleDownloadedCurrentSong();
                 BaseListener.RPC(
                     photonView, 
-                    "ReportDownloadComplete",
+                    nameof(ReportDownloadComplete),
                     RpcTarget.MasterClient,
                     url,
                     PhotonNetwork.LocalPlayer.ActorNumber
@@ -484,7 +482,7 @@ namespace BoomBoxCartMod
                 boomboxParent?.HandleDownloadedCurrentSong();
                 BaseListener.RPC(
                     photonView, 
-                    "ReportDownloadComplete",
+                    nameof(ReportDownloadComplete),
                     RpcTarget.MasterClient,
                     url,
                     PhotonNetwork.LocalPlayer.ActorNumber
@@ -621,7 +619,7 @@ namespace BoomBoxCartMod
 
                     BaseListener.RPC(
                         photonView, 
-                        "SetSongTitle",
+                        nameof(SetSongTitle),
                         RpcTarget.All,
                         url,
                         title
@@ -666,7 +664,7 @@ namespace BoomBoxCartMod
 
                     BaseListener.RPC(
                         photonView, 
-                        "ReportDownloadError",
+                        nameof(ReportDownloadError),
                         RpcTarget.All,
                         PhotonNetwork.LocalPlayer.ActorNumber,
                         url,
@@ -773,7 +771,7 @@ namespace BoomBoxCartMod
 
                 BaseListener.RPC(
                     photonView, 
-                    "ReportDownloadError",
+                    nameof(ReportDownloadError),
                     RpcTarget.All, 
                     PhotonNetwork.LocalPlayer.ActorNumber, 
                     urlToReport,

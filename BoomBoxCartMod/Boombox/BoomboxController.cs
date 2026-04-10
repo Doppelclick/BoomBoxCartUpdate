@@ -55,7 +55,7 @@ namespace BoomBoxCartMod
 
 			BaseListener.RPC(
                 photonView,
-                "RequestControl",
+                nameof(RequestControl),
 				RpcTarget.MasterClient,
 				localPlayerId
 			);
@@ -83,7 +83,7 @@ namespace BoomBoxCartMod
 				//Logger.LogInfo($"Granting control to player {requesterId}");
 				BaseListener.RPC(
                     photonView,
-                    "SetController",
+                    nameof(SetController),
 					RpcTarget.All,
 					requesterId
 				);
@@ -145,7 +145,7 @@ namespace BoomBoxCartMod
 				//Logger.LogInfo($"Player {PhotonNetwork.LocalPlayer.ActorNumber} releasing boombox control");
 				BaseListener.RPC(
                     photonView,
-                    "RequestRelease",
+                    nameof(RequestRelease),
 					RpcTarget.MasterClient,
 					PhotonNetwork.LocalPlayer.ActorNumber
 				);
@@ -163,7 +163,7 @@ namespace BoomBoxCartMod
 				//Logger.LogInfo($"Master client processing release request from player {releaserId}");
 				BaseListener.RPC(
                     photonView,
-                    "SetController",
+                    nameof(SetController),
 					RpcTarget.All,
 					-1
 				);
@@ -178,7 +178,7 @@ namespace BoomBoxCartMod
 				//Logger.LogInfo($"Player {playerActorNumber} released cart while controlling boombox - auto-releasing control");
 				BaseListener.RPC(
                     photonView,
-                    "SetController",
+                    nameof(SetController),
 					RpcTarget.All,
 					-1
 				);
