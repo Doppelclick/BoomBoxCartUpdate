@@ -70,6 +70,17 @@ namespace BoomBoxCartMod.Util
             return boomboxData;
         }
 
+        private void ApplyRestoreSettings(Boombox.BoomboxData data)
+        {
+            if (data == null || Instance.AutoResume.Value)
+            {
+                return;
+            }
+
+            data.isPlaying = false;
+            data.pendingPlaybackStart = false;
+        }
+
         public void InitializeBoomboxData(Boombox boombox)
         {
             int index = initializedBoomBoxes.IndexOf(boombox);
@@ -85,6 +96,7 @@ namespace BoomBoxCartMod.Util
                 if (index < boomboxData.Count)
                 {
                     data = boomboxData[index];
+                    ApplyRestoreSettings(data);
                 }
                 else
                 {

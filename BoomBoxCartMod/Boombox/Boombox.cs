@@ -640,7 +640,17 @@ namespace BoomBoxCartMod
         {
             if (audioSource?.clip != null)
             {
+                if (!audioSource.isPlaying && data.playbackTime > 0 && audioSource.time <= 0f)
+                {
+                    return data.playbackTime;
+                }
+
                 return audioSource.time;
+            }
+
+            if (data.playbackTime > 0)
+            {
+                return data.playbackTime;
             }
 
             return Math.Max(0f, (GetCurrentTimeMilliseconds() - data.playbackStartTimestamp) / 1000f);
@@ -793,7 +803,14 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            SetPlaybackReferenceFromSeconds(GetTrackedPlaybackSeconds());
+            float trackedPlaybackSeconds = GetTrackedPlaybackSeconds();
+            SetPlaybackReferenceFromSeconds(trackedPlaybackSeconds);
+
+            if (startPlaying && data.playbackTime > 0 && Math.Abs(trackedPlaybackSeconds - data.playbackTime) < 0.01f)
+            {
+                data.playbackTime = 0;
+            }
+
             data.isPlaying = startPlaying;
             data.pendingPlaybackStart = false;
             PublishSharedState();

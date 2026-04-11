@@ -30,7 +30,7 @@ namespace BoomBoxCartMod
         private const float MaxBassSpeedBoost = 0.85f;
 
         // How quickly the effect reacts when bass intensity rises.
-        private const float BassResponse = 20f;
+        private const float BassResponse = 10f;
 
         // How quickly the effect settles back down after the beat fades.
         private const float BassRelease = 4f;
@@ -48,7 +48,7 @@ namespace BoomBoxCartMod
         private const float NonBassMaxFrequency = 2500f;
 
         // Adds some peak sensitivity so kick drums and bass hits read more clearly than a plain average.
-        private const float PeakEmphasis = 0.65f;
+        private const float PeakEmphasis = 0.75f;
 
         // Lower clamp used when converting FFT data into visualizer-style values.
         private const float AnalysisBarMin = 0.15f;
