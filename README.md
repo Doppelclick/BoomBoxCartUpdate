@@ -36,6 +36,28 @@ Reach out to me (link at the end) for issues with any service listed here, or su
     <li>Suggest some maybe!</li>
 </ul>
 
+## Issues
+
+### No audio
+- Causes
+    - Pressing the mute button (default key "M")
+    - The audio service you are downloading from does not support your region
+    - An internal error of ffmpeg or yt-dl (dependencies)
+    - Error when downloading dependencies
+
+- Fixes
+    - If you can view the game logs, they might provide some helpful information, e.g. a dependency download error, region block, etc.
+    - Delete the BoomboxedCart located here:
+    ../Steamlibrary/steamapps/common/REPO/**BoomboxedCart**
+    or enable the flag in the config file (BepInEx/config/Doppelclick.BoomboxCartUpgrade.cfg / Debug / ReinstallResources) and launch the game
+    - If your region is blocked, use a VPN server in e.g. America or Central Europe
+
+
+- To enable the console window, head to your mod config directory, into the BepInEx config file and enable the console (BepInEx/config/BepInEx.cfg / Logging.Console / Enabled)
+
+### No fix found
+Launch the game with the console enabled and send the log into the mod thread on the <a href="https://discord.com/channels/1344557689979670578/1439361913933795489">REPO Modding discord server</a>
+
 ## Credits
 <p>A HUGE thanks to @survivalq and their <a href="https://github.com/survivalq/SemiBoombox">SemiBoombox Mod</a> for critical funcionality for parts of this mod. If you're looking to make your own boombox mod or just play audio from a third-party, check their mod out, it is much better code!!!
 
@@ -49,5 +71,6 @@ Also big thanks to <a href="https://thunderstore.io/c/repo/p/SteamBlizzard/">Dan
 
 ## Contact
 
-<p>Feel free to reach out to me on discord @doppelclick</p>
-<p>Or in the repo modding community discord (https://discord.com/invite/vPJtKhYAFe) in this thread: https://discord.com/channels/1344557689979670578/1439361913933795489</p>
+Feel free to reach out to me on discord @doppelclick
+
+Or in the repo modding community discord (https://discord.com/invite/vPJtKhYAFe) in this thread: https://discord.com/channels/1344557689979670578/1439361913933795489

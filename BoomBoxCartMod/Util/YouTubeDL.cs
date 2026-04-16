@@ -317,8 +317,8 @@ namespace BoomBoxCartMod.Util
 					Logger.LogError($"Download Error: {ex}");
 					Logger.LogError($"Stack Trace: {ex.StackTrace}");
 
-					throw ex;
-				}
+                    throw;
+                }
 			});
 		}
 
@@ -551,6 +551,51 @@ namespace BoomBoxCartMod.Util
 
 			return false;
         }
+
+		public static bool Uninstall()
+		{
+			if (IsUpdatingResources)
+			{
+				Logger.LogWarning("Attempted to uninstall downloader while resource update in progress. Please wait until the update is complete and try again if you need to.");
+				return false;
+			}
+
+			// TODO: Stop current downloads, currently leads to errors when used while downloading
+
+			CleanUp();
+
+			try
+			{
+				if (Directory.Exists(baseFolder))
+				{
+					Directory.Delete(baseFolder, true);
+				}
+			}
+			catch (Exception ex)
+			{
+				Logger.LogError($"Error during uninstallation of dependencies: {ex.Message}");
+				return false;
+			}
+
+			Logger.LogInfo("Downloader dependencies uninstalled successfully.");
+			return true;
+		}
+
+		public static Task Reinstall()
+		{
+			if (!Uninstall())
+			{
+				return Task.FromResult(false);
+			}
+
+			Logger.LogInfo("Starting downloader dependencies download.");
+
+			initializeTask = InitializeInternalAsync();
+
+			return initializeTask;
+		}
+
+
 
         [Serializable]
         private class GitHubRelease

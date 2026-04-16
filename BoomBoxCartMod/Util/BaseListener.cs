@@ -184,7 +184,7 @@ namespace BoomBoxCartMod.Util
                 Instance.baseListener.photonView?.RPC(
                     nameof(ModFeedbackCheck),
                     RpcTarget.MasterClient,
-                    BaseListener.downloaderAvailable ? BoomBoxCartMod.modVersion : "-1",
+                    downloaderAvailable ? BoomBoxCartMod.modVersion : "-1",
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
             }
