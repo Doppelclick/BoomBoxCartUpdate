@@ -359,11 +359,13 @@ namespace BoomBoxCartMod
 
             if (state == null)
             {
+                Logger.LogWarning($"Deserialized boombox state for cart {photonView?.ViewID} is null.");
                 return;
             }
 
             if (state.version < lastAppliedSharedStateVersion)
             {
+                Logger.LogInfo($"Ignoring older boombox state for cart {photonView?.ViewID}. Behind by {lastAppliedSharedStateVersion - state.version} versions.");
                 return;
             }
 
@@ -606,14 +608,6 @@ namespace BoomBoxCartMod
             PhotonNetwork.CurrentRoom.SetCustomProperties(properties);
             lastSharedStateJson = json;
             syncFinished = true;
-
-            if (PhotonNetwork.IsMasterClient)
-            {
-                lastAppliedSharedStateVersion = state.version;
-                ApplySharedPlaybackState(false);
-                GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
-                UpdateStatusFromState();
-            }
         }
 
         private void StopLocalPlayback(bool updateSharedFlag)
@@ -1327,7 +1321,9 @@ namespace BoomBoxCartMod
                 dataStore.Remove(data);
             }
 
+            int oldVersion = data.stateVersion;
             data = new BoomboxData();
+            data.stateVersion = oldVersion + 1;
             ApplyVisualStateFromData();
 
             if (Instance.RestoreBoomboxes.Value)
