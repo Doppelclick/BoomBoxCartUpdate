@@ -22,7 +22,7 @@ namespace BoomBoxCartMod
 	{
 		public const string modGUID = "Doppelclick.BoomboxCartUpgrade";
 		public const string modName = "BoomboxCartUpgrade";
-		public const string modVersion = "1.3.2";
+		public const string modVersion = "1.3.3";
 
 		private readonly Harmony harmony = new Harmony(modGUID);
         public BaseListener baseListener = null;
@@ -34,16 +34,17 @@ namespace BoomBoxCartMod
 		public PersistentData data;
 
 
+        private bool _modDisabled = false;
 		public bool modDisabled
 		{
-			get;
+            get { return _modDisabled; }
 			set {
-                if (field != value)
+                if (_modDisabled != value)
                 {
                     logger.LogInfo("Mod " + (value ? "Disabled" : "Enabled"));
                 }
 
-                field = value;
+                _modDisabled = value;
 
                 if (value && data != null)
                 {

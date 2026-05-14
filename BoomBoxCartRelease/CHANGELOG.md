@@ -1,4 +1,9 @@
 # Changelog
+## 1.3.3
+ - Fix mod for latest REPO update
+ - Fix AutoResume
+ - Add ability to delete dependcies on startup, via config value
+ - Fix Resetting Boombox
 ## 1.3.2
  - Improved Stability
  - Underglow better!!!

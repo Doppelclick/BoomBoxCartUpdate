@@ -10,7 +10,7 @@
     <RootNamespace>BoomBoxCartMod</RootNamespace>
     <AssemblyName>BoomBoxCartUpgradeMod</AssemblyName>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
-    <LangVersion>14.0</LangVersion>
+    <LangVersion>latest</LangVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
