@@ -11,6 +11,7 @@ using System.Security.Policy;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using System.Runtime.Remoting.Lifetime;
+using BepInEx;
 
 namespace BoomBoxCartMod.Util
 {
@@ -21,17 +22,23 @@ namespace BoomBoxCartMod.Util
 
 		private static readonly string baseFolder = Path.Combine(Directory.GetCurrentDirectory(), "BoomboxedCart");
         private static readonly string tempFolder = Path.Combine(baseFolder, "temp");
+        private static readonly string jsFolder = Path.Combine(Directory.GetCurrentDirectory(), "JavaScript");
+
+        private const string JS_RELEASE_URL = "https://nodejs.org/dist/v26.1.0/node-v26.1.0-win-x64.zip";
         //private const string YtDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/download/2025.02.19/yt-dlp.exe";
         private const string YTDLP_RELEASE_URL = "https://api.github.com/repos/yt-dlp/yt-dlp-Builds/releases/latest";
         private const string YTDLP_URL = "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
 		private const string FFMPEG_RELEASE_URL = "https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest";
 		private const string FFMPEG_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+
+		private static readonly string jsRuntimePath = Path.Combine(jsFolder, "node-v26.1.0-win-x64/node.exe");
 		private static readonly string ytDlpPath = Path.Combine(baseFolder, "yt-dlp.exe");
 		private static readonly string ffmpegFolder = Path.Combine(baseFolder, "ffmpeg");
 		private static string ffmpegBinPath = Path.Combine(ffmpegFolder, "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
 		private static readonly object initializationLock = new object();
 		private static Task initializeTask = Task.CompletedTask;
 
+		private static bool jsInstalled = false;
         private static bool ffmpegUpdateChecked = false;
         private static bool ytDLPUpdateChecked = false;
 		private static bool isUpdatingResources = false;
@@ -69,6 +76,20 @@ namespace BoomBoxCartMod.Util
 			{
 				Directory.CreateDirectory(baseFolder);
 				Directory.CreateDirectory(tempFolder);
+				Directory.CreateDirectory(jsFolder);
+
+				if (!File.Exists(jsRuntimePath))
+				{
+                    SetResourceUpdateStatus("Updating resources: downloading nodeJS...", true);
+                    Logger.LogInfo("nodeJS not found. Downloading...");
+                    await DownloadAndExtractArchiveAsync(JS_RELEASE_URL, jsFolder, "node.exe", 6);
+                    Logger.LogInfo("nodeJS download finished.");
+                    jsInstalled = true;
+				}
+				else
+				{
+					jsInstalled = true;
+				}
 
 				if (!File.Exists(ytDlpPath))
 				{
@@ -105,7 +126,7 @@ namespace BoomBoxCartMod.Util
 				{
 					SetResourceUpdateStatus("Updating resources: downloading FFmpeg...", true);
 					Logger.LogInfo("ffmpeg not found. Downloading and extracting...");
-					await DownloadAndExtractFFmpegAsync();
+					await DownloadAndExtractArchiveAsync(FFMPEG_URL, ffmpegFolder, "ffmpeg.exe", 6);
 				}
 				else if (!ffmpegUpdateChecked)
 				{
@@ -119,9 +140,9 @@ namespace BoomBoxCartMod.Util
 					{
 						SetResourceUpdateStatus("Updating resources: updating FFmpeg...", true);
 						Logger.LogInfo("ffmpeg update found. Downloading and extracting...");
-						await DownloadAndExtractFFmpegAsync();
-					}
-					else
+                        await DownloadAndExtractArchiveAsync(FFMPEG_URL, ffmpegFolder, "ffmpeg.exe", 6);
+                    }
+                    else
 					{
 						Logger.LogInfo(latestReleaseDate == null ? "ffmpeg release date failed to parse." : "ffmpeg up to date.");
 					}
@@ -217,16 +238,25 @@ namespace BoomBoxCartMod.Util
 			}
 		}
 
-		private static async Task DownloadAndExtractFFmpegAsync()
-		{
-			string zipPath = Path.Combine(baseFolder, "ffmpeg.zip");
-			string stagingFolder = Path.Combine(tempFolder, "ffmpeg-staging-" + Guid.NewGuid().ToString("N"));
+        private static async Task<string> DownloadAndExtractArchiveAsync(
+			string url,
+			string installFolder,
+			string executableName,
+			int retries = 3
+		) {
+            string archivePath = Path.Combine(
+                tempFolder,
+                Path.GetFileName(url));
 
-			try
-			{
-				if (File.Exists(zipPath))
+            string stagingFolder = Path.Combine(
+                tempFolder,
+                "staging-" + Guid.NewGuid().ToString("N"));
+
+            try
+            {
+				if (File.Exists(archivePath))
 				{
-					File.Delete(zipPath);
+					File.Delete(archivePath);
 				}
 
 				if (Directory.Exists(stagingFolder))
@@ -234,61 +264,74 @@ namespace BoomBoxCartMod.Util
 					Directory.Delete(stagingFolder, true);
 				}
 
-				Directory.CreateDirectory(stagingFolder);
+                Directory.CreateDirectory(stagingFolder);
 
-				Logger.LogInfo($"Downloading FFmpeg from {FFMPEG_URL}...");
+                Logger.LogInfo($"Downloading: {url}");
 
-				await DownloadFileAsync(FFMPEG_URL, zipPath, 6);
+                await DownloadFileAsync(url, archivePath, retries);
 
-				if (!File.Exists(zipPath))
-				{
-					throw new Exception("FFmpeg zip file not downloaded properly.");
-				}
+                if (!File.Exists(archivePath))
+                    throw new Exception("Archive download failed.");
 
-				Logger.LogInfo($"Downloaded FFmpeg zip file. Extracting...");
+                Logger.LogInfo("Extracting archive...");
 
-				ZipFile.ExtractToDirectory(zipPath, stagingFolder);
+                string extension = Path.GetExtension(archivePath).ToLowerInvariant();
 
-				File.Delete(zipPath);
+                if (extension == ".zip")
+                {
+                    ZipFile.ExtractToDirectory(
+                        archivePath,
+                        stagingFolder);
+                }
+                else
+                {
+                    throw new Exception(
+                        $"Unsupported archive type: {extension}");
+                }
 
-				string stagedFfmpegPath = Directory.GetFiles(stagingFolder, "ffmpeg.exe", SearchOption.AllDirectories).FirstOrDefault();
+                File.Delete(archivePath);
 
-				if (string.IsNullOrWhiteSpace(stagedFfmpegPath))
-				{
-					Logger.LogError("ffmpeg.exe not found in extracted files. Uh oh!");
-					throw new Exception("ffmpeg.exe not found in extracted files. Uh oh!");
-				}
+                string executablePath =
+                    Directory.GetFiles(
+                        stagingFolder,
+                        executableName,
+                        SearchOption.AllDirectories)
+                    .FirstOrDefault();
 
-				if (Directory.Exists(ffmpegFolder))
-				{
-					Directory.Delete(ffmpegFolder, true);
-				}
+                if (string.IsNullOrWhiteSpace(executablePath))
+                {
+                    throw new Exception(
+                        $"{executableName} not found after extraction.");
+                }
 
-				Directory.Move(stagingFolder, ffmpegFolder);
-				ffmpegBinPath = Directory.GetFiles(ffmpegFolder, "ffmpeg.exe", SearchOption.AllDirectories).First();
+                if (Directory.Exists(installFolder))
+                    Directory.Delete(installFolder, true);
 
-				Logger.LogInfo("FFmpeg extracted successfully.");
-			}
-			catch (Exception ex)
-			{
-				Logger.LogError($"Error downloading or extracting FFmpeg: {ex.Message}");
-				throw;
-			}
-			finally
-			{
-				if (File.Exists(zipPath))
-				{
-					File.Delete(zipPath);
-				}
+                Directory.Move(stagingFolder, installFolder);
 
-				if (Directory.Exists(stagingFolder))
-				{
-					Directory.Delete(stagingFolder, true);
-				}
-			}
-		}
+                executablePath =
+                    Directory.GetFiles(
+                        installFolder,
+                        executableName,
+                        SearchOption.AllDirectories)
+                    .First();
 
-		public static async Task<string> DownloadAudioTitleAsync(string videoUrl)
+                Logger.LogInfo(
+                    $"{executableName} installed successfully.");
+
+                return executablePath;
+            }
+            finally
+            {
+                if (File.Exists(archivePath))
+                    File.Delete(archivePath);
+
+                if (Directory.Exists(stagingFolder))
+                    Directory.Delete(stagingFolder, true);
+            }
+        }
+
+        public static async Task<string> DownloadAudioTitleAsync(string videoUrl)
 		{
             await InitializeAsync();
 
@@ -360,10 +403,26 @@ namespace BoomBoxCartMod.Util
 							};
 
 					string noIckySpecialCharsFileName = $"audio_{DateTime.Now.Ticks}.%(ext)s";
-					string command = $"-x --audio-format mp3 --audio-quality {quality} --ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(folder, noIckySpecialCharsFileName)}\" {videoUrl}";
+					string options = "-v ";
+                    if (jsInstalled)
+                    {
+                        options += $"--js-runtimes node:\"{jsRuntimePath}\" ";
+                    }
+
+                    if (!Instance.CookiePath.Value.IsNullOrWhiteSpace())
+                    {
+                        options += $"--cookies \"{Instance.CookiePath.Value}\" ";
+                    }
+                    else if (Instance.Browser.Value != BoomBoxCartMod.BrowserType.NONE)
+                    {
+                        options += $"--cookies-from-browser \"{Instance.Browser.Value}\" ";
+                    }
+
+                    string command = $"-x --audio-format mp3 --audio-quality {quality} {options}--ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(folder, noIckySpecialCharsFileName)}\" {videoUrl}";
 
 
-					ProcessStartInfo processInfo = new()
+
+                    ProcessStartInfo processInfo = new()
 					{
 						FileName = ytDlpPath,
 						Arguments = command,

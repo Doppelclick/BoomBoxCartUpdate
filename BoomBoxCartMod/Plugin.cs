@@ -61,8 +61,10 @@ namespace BoomBoxCartMod
 		}
 
 
+        public ConfigEntry<String> CookiePath { get; private set; }
+        public ConfigEntry<BrowserType> Browser { get; private set; }
 
-		public ConfigEntry<Key> OpenUIKey { get; private set; }
+        public ConfigEntry<Key> OpenUIKey { get; private set; }
         public ConfigEntry<Key> GlobalMuteKey { get; private set; }
 
         public ConfigEntry<bool> MasterClientDismissQueue { get; private set; }
@@ -74,7 +76,7 @@ namespace BoomBoxCartMod
         public ConfigEntry<float> UnderglowBassBias { get; private set; }
 
         private bool resourcesReinstalling = false;
-        public ConfigEntry<bool> ReinstallResources { get; private set;}
+        public ConfigEntry<bool> ReinstallResources { get; private set; }
 
 
         public ConfigEntry<VisualizerPaused> VisualizerBehaviourPaused { get; private set; }
@@ -90,6 +92,9 @@ namespace BoomBoxCartMod
 			logger.LogInfo("BoomBoxCartMod loaded!");
 
 			harmony.PatchAll();
+
+            CookiePath = Config.Bind("Downloader", "CustomCookiePath", "", "Path to where the browser cookies are located, if the browser selection does not work.");
+            Browser = Config.Bind("Downloader", "Browser", BrowserType.NONE, "Select the browser you are using for cookies (NONE, chrome, firefox, edge, brave, safari).");
 
             OpenUIKey = Config.Bind("Binds", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
             GlobalMuteKey = Config.Bind("Binds", "GlobalMuteKey", Key.M, "Key to mute all playback.");
@@ -162,6 +167,16 @@ namespace BoomBoxCartMod
             Show,
             PausePosition,
             Hide
+        }
+
+        public enum BrowserType
+        {
+            NONE,
+            chrome,
+            firefox,
+            edge,
+            brave,
+            safari
         }
     }
 }
