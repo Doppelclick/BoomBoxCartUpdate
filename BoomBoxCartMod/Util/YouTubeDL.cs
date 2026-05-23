@@ -12,10 +12,27 @@ using System.Text.RegularExpressions;
 using UnityEngine;
 using System.Runtime.Remoting.Lifetime;
 using BepInEx;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BoomBoxCartMod.Util
 {
-	public static class YoutubeDL
+    public class SongInfo
+    {
+        [JsonProperty("title")]
+        public string title { get; set; } = "Unknown Title";
+        [JsonProperty("duration")]
+        public double duration { get; set; } = -1;
+
+		public SongInfo() {}
+		public SongInfo(string title, double duration) { 
+			this.title = title;
+			this.duration = duration;
+		}
+    }
+
+
+    public static class YoutubeDL
 	{
 		private static BoomBoxCartMod Instance = BoomBoxCartMod.instance;
 		private static ManualLogSource Logger => Instance.logger;
@@ -47,7 +64,7 @@ namespace BoomBoxCartMod.Util
 		public static bool IsUpdatingResources => isUpdatingResources;
 		public static string ResourceUpdateStatus => string.IsNullOrWhiteSpace(resourceUpdateStatus) ? "Updating resources..." : resourceUpdateStatus;
 
-		public static Task InitializeAsync()
+        public static Task InitializeAsync()
 		{
 			lock (initializationLock)
 			{
@@ -331,7 +348,7 @@ namespace BoomBoxCartMod.Util
             }
         }
 
-        public static async Task<string> DownloadAudioTitleAsync(string videoUrl)
+        public static async Task<SongInfo> DownloadAudioInfoAsync(string videoUrl)
 		{
             await InitializeAsync();
 
@@ -339,21 +356,21 @@ namespace BoomBoxCartMod.Util
 			{
 				try
 				{
-					string title = Boombox.GetSongTitle(videoUrl);
-					if (string.IsNullOrWhiteSpace(title) || IsUnknownTitle(title))
+					SongInfo info = Boombox.GetSongInfo(videoUrl);
+					if (info == null || string.IsNullOrWhiteSpace(info.title) || IsUnknownTitle(info.title))
 					{
-						title = await GetVideoTitleInternalAsync(videoUrl);
-						if (string.IsNullOrEmpty(title))
+						info = await GetVideoTitleInternalAsync(videoUrl);
+						if (info == null || string.IsNullOrEmpty(info.title))
 						{
-							title = "Unknown Title";
+							info = new SongInfo();
 						}
 					}
 
 					//Logger.LogInfo($"Got video title downloaded: {title}");
 					// remove \n and \r from title
-					title = title.Replace("\n", "").Replace("\r", "");
+					info.title = info.title.Replace("\n", "").Replace("\r", "");
 
-					return title;
+					return info;
 				}
 				catch (Exception ex)
 				{
@@ -379,7 +396,7 @@ namespace BoomBoxCartMod.Util
 
 
 		/** @Return File Path to Audio Clip **/
-		public static async Task<string> DownloadAudioAsync(string videoUrl, string videoTitle)
+		public static async Task<string> DownloadAudioAsync(string videoUrl, SongInfo info)
 		{
 			//await InitializeAsync(); Presume DownloadAudioTitleAsync was run before
 
@@ -403,22 +420,23 @@ namespace BoomBoxCartMod.Util
 							};
 
 					string noIckySpecialCharsFileName = $"audio_{DateTime.Now.Ticks}.%(ext)s";
-					string options = "-v ";
+					string options = "";
+
                     if (jsInstalled)
                     {
-                        options += $"--js-runtimes node:\"{jsRuntimePath}\" ";
+                        options += $" --js-runtimes node:\"{jsRuntimePath}\"";
                     }
 
                     if (!Instance.CookiePath.Value.IsNullOrWhiteSpace())
                     {
-                        options += $"--cookies \"{Instance.CookiePath.Value}\" ";
+                        options += $" --cookies \"{Instance.CookiePath.Value}\"";
                     }
                     else if (Instance.Browser.Value != BoomBoxCartMod.BrowserType.NONE)
                     {
-                        options += $"--cookies-from-browser \"{Instance.Browser.Value}\" ";
+                        options += $" --cookies-from-browser \"{Instance.Browser.Value}\"";
                     }
 
-                    string command = $"-x --audio-format mp3 --audio-quality {quality} {options}--ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(folder, noIckySpecialCharsFileName)}\" {videoUrl}";
+                    string command = $"-x --audio-format mp3 --audio-quality {quality}{options} --ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(folder, noIckySpecialCharsFileName)}\" {videoUrl}";
 
 
 
@@ -499,14 +517,14 @@ namespace BoomBoxCartMod.Util
 			});
 		}
 
-		private static async Task<string> GetVideoTitleInternalAsync(string url)
+		private static async Task<SongInfo> GetVideoTitleInternalAsync(string url)
 		{
 			try
 			{
 				ProcessStartInfo psi = new ProcessStartInfo
 				{
 					FileName = ytDlpPath,
-					Arguments = $"--skip-download --no-playlist --no-warnings --encoding utf-8 --print \"%(title)s\" \"{url}\"",
+					Arguments = $"--skip-download --no-playlist --no-warnings --encoding utf-8 --print \"{{\\\"title\\\":\\\"%(title)s\\\",\\\"duration\\\":%(duration)s}}\" \"{url}\"",
 					UseShellExecute = false,
 					RedirectStandardOutput = true,
 					RedirectStandardError = true,
@@ -521,17 +539,17 @@ namespace BoomBoxCartMod.Util
 				{
 					process.Start();
 
-					string title = await process.StandardOutput.ReadToEndAsync();
+					string json = await process.StandardOutput.ReadToEndAsync();
 					string error = await process.StandardError.ReadToEndAsync();
 
-					var timeoutTask = Task.Delay(10000);
+					var timeoutTask = Task.Delay(DownloadHelper.INITIAL_DOWNLOAD_TIMEOUT * 1000);
 					var processExitTask = Task.Run(() => process.WaitForExit());
 
 					if (await Task.WhenAny(processExitTask, timeoutTask) == timeoutTask)
 					{
 						try { process.Kill(); } catch { }
 						Logger.LogWarning("yt-dlp title fetch timed out");
-						return "Unknown Title (Timeout)";
+						return new SongInfo();
 					}
 
 					if (process.ExitCode != 0)
@@ -541,37 +559,48 @@ namespace BoomBoxCartMod.Util
 						{
 							Logger.LogWarning($"yt-dlp title fetch error: {error.Trim()}");
 						}
-						return "Unknown Title";
+						return new SongInfo();
 					}
 
 					//title = title.Trim();
 					//byte[] bytes = Encoding.Default.GetBytes(title);
 					//title = Encoding.UTF8.GetString(bytes);
 
-					title = title.Trim();
-					Logger.LogInfo($"Got video title: {title}");
+					SongInfo info = null;
 
-					if (!string.IsNullOrEmpty(title))
+                    try
 					{
-						try
+						Logger.LogInfo($"Got video info: {json}");
+
+                        info = JsonConvert.DeserializeObject<SongInfo>(json);
+
+                        if (info != null && !string.IsNullOrEmpty(info.title) && info.duration != null)
 						{
-							// trying to clean title
-							title = new string(title.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
-						}
-						catch (Exception ex)
-						{
-							Logger.LogWarning($"Error sanitizing title: {ex.Message}");
+							try
+							{
+								// trying to clean title
+								info.title = new string(info.title.Where(c => !char.IsControl(c) || c == '\n' || c == '\r' || c == '\t').ToArray());
+							}
+							catch (Exception ex)
+							{
+								Logger.LogWarning($"Error sanitizing title: {ex.Message}");
+							}
 						}
 					}
-
-					return string.IsNullOrEmpty(title) ? "Unknown Title" : title;
+					catch (Exception ex)
+					{
+                        Logger.LogWarning($"Error converting audio info: {ex.Message}");
+						return new SongInfo();
+                    }
+ 
+					return info == null ? new SongInfo() : info;
 				}
 			}
 			catch (Exception ex)
 			{
 				Logger.LogError($"Error getting video title: {ex.Message}");
-				return "Unknown Title";
-			}
+				return new SongInfo();
+            }
 		}
 
         private static async Task<DateTime?> GetLatestGithubReleaseDate(string url)

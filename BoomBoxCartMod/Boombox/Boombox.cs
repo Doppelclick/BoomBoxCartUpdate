@@ -8,6 +8,7 @@ using BepInEx.Logging;
 using System.Linq;
 using static BoomBoxCartMod.Boombox;
 using PhotonHashtable = ExitGames.Client.Photon.Hashtable;
+using System.Reflection;
 
 namespace BoomBoxCartMod
 {
@@ -57,6 +58,7 @@ namespace BoomBoxCartMod
             public int playbackTime;
             public string[] queueTitles = Array.Empty<string>();
             public string[] queueUrls = Array.Empty<string>();
+            public double[] queueDurations = Array.Empty<double>();
             public int[] queueStartTimes = Array.Empty<int>();
             public SharedAudioEntry[] queue = Array.Empty<SharedAudioEntry>();
         }
@@ -66,6 +68,7 @@ namespace BoomBoxCartMod
         {
             public string title;
             public string url;
+            public double duration;
             public int startTime;
         }
 
@@ -205,11 +208,11 @@ namespace BoomBoxCartMod
         private float monsterAttractTimer = 0f;
         private float monsterAttractInterval = 1.0f; // every second
 
-        public static string GetSongTitle(string url)
+        public static SongInfo GetSongInfo(string url)
         {
-            if (DownloadHelper.songTitles.ContainsKey(url))
+            if (DownloadHelper.songInfo.ContainsKey(url))
             {
-                return DownloadHelper.songTitles[url];
+                return DownloadHelper.songInfo[url];
             }
             return null;
         }
@@ -243,11 +246,13 @@ namespace BoomBoxCartMod
                 playbackTime = data.playbackTime,
                 queueTitles = data.playbackQueue.Select(entry => entry.Title).ToArray(),
                 queueUrls = data.playbackQueue.Select(entry => entry.Url).ToArray(),
+                queueDurations = data.playbackQueue.Select(entry => entry.Duration).ToArray(),
                 queueStartTimes = data.playbackQueue.Select(entry => entry.StartTime).ToArray(),
                 queue = data.playbackQueue.Select(entry => new SharedAudioEntry
                 {
                     title = entry.Title,
                     url = entry.Url,
+                    duration = entry.Duration,
                     startTime = entry.StartTime
                 }).ToArray()
             };
@@ -265,16 +270,19 @@ namespace BoomBoxCartMod
                     string title = state.queueTitles != null && index < state.queueTitles.Length && !string.IsNullOrWhiteSpace(state.queueTitles[index])
                         ? state.queueTitles[index]
                         : "Unknown Title";
+                    double duration = state.queueDurations[index] != null ? state.queueDurations[index] : -1;
                     int startTime = state.queueStartTimes != null && index < state.queueStartTimes.Length
                         ? state.queueStartTimes[index]
                         : 0;
 
-                    if (!string.IsNullOrWhiteSpace(url) && !DownloadHelper.songTitles.ContainsKey(url))
+                    SongInfo info = new SongInfo(title, duration);
+
+                    if (!string.IsNullOrWhiteSpace(url) && !DownloadHelper.songInfo.ContainsKey(url))
                     {
-                        DownloadHelper.songTitles[url] = title;
+                        DownloadHelper.songInfo[url] = info;
                     }
 
-                    queueFromArrays.Add(new AudioEntry(title, url)
+                    queueFromArrays.Add(new AudioEntry(url, info)
                     {
                         StartTime = startTime
                     });
@@ -291,14 +299,17 @@ namespace BoomBoxCartMod
             return state.queue.Select(entry =>
             {
                 string title = string.IsNullOrWhiteSpace(entry.title) ? "Unknown Title" : entry.title;
+                double duration = entry.duration != null ? entry.duration : -1;
                 string url = entry.url;
 
-                if (!string.IsNullOrWhiteSpace(url) && !DownloadHelper.songTitles.ContainsKey(url))
+                SongInfo info = new SongInfo(title, duration);
+
+                if (!string.IsNullOrWhiteSpace(url) && !DownloadHelper.songInfo.ContainsKey(url))
                 {
-                    DownloadHelper.songTitles[url] = title;
+                    DownloadHelper.songInfo[url] = info;
                 }
 
-                return new AudioEntry(title, url)
+                return new AudioEntry(url, info)
                 {
                     StartTime = entry.startTime
                 };
@@ -718,8 +729,8 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            string title = DownloadHelper.songTitles.ContainsKey(url) ? DownloadHelper.songTitles[url] : "Unknown Title";
-            AudioEntry song = new AudioEntry(title, url)
+            SongInfo info = DownloadHelper.songInfo.ContainsKey(url) ? DownloadHelper.songInfo[url] : new SongInfo();
+            AudioEntry song = new AudioEntry(url, info)
             {
                 StartTime = seconds
             };
@@ -1214,6 +1225,23 @@ namespace BoomBoxCartMod
             //Logger.LogInfo($"Audio quality set to level {qualityLevel}");
         }
 
+        public double EstimateDownloadTimeSeconds(double durationSeconds, int downloadSpeedMbps)
+        {
+            int bitrate = DownloadHelper.GetBitrateKbps(ApplyQualityToDownloads ? 4 : Boombox.qualityLevel);
+
+            double sizeBytes = (bitrate * 1000.0 / 8.0) * durationSeconds;
+
+            // speed in Mb/s converted to bytes/s
+            double speedBytesPerSec = Math.Max(1, downloadSpeedMbps) / 8.0 * 1024 * 1024;
+
+            int overhead = 5; // 5 seconds for connection, latency, etc.
+            double downloadTime = sizeBytes / speedBytesPerSec * 2.5; // factor and overhead
+            double processingTime = durationSeconds * 0.005; // FFmpeg estimate
+            double overheadMultiplier = 1.3;
+
+            return (overhead + downloadTime + processingTime) * overheadMultiplier;
+        }
+
         private void UpdateAudioRangeBasedOnVolume(float volume)
         {
             // louder volume = hear from farther away
@@ -1356,12 +1384,14 @@ namespace BoomBoxCartMod
         {
             public string Title;
             public string Url;
+            public double Duration = -1;
             public int StartTime = 0;
 
-            public AudioEntry(string title, string url)
+            public AudioEntry(string url, SongInfo info)
             {
-                Title = title;
                 Url = url;
+                Title = info.title;
+                Duration = info.duration;
             }
 
             public int PeekStartTime(Boombox boombox)

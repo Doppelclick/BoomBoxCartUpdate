@@ -63,6 +63,7 @@ namespace BoomBoxCartMod
 
         public ConfigEntry<String> CookiePath { get; private set; }
         public ConfigEntry<BrowserType> Browser { get; private set; }
+        public ConfigEntry<int> DownloadSpeed { get; private set; }
 
         public ConfigEntry<Key> OpenUIKey { get; private set; }
         public ConfigEntry<Key> GlobalMuteKey { get; private set; }
@@ -95,6 +96,7 @@ namespace BoomBoxCartMod
 
             CookiePath = Config.Bind("Downloader", "CustomCookiePath", "", "Path to where the browser cookies are located, if the browser selection does not work.");
             Browser = Config.Bind("Downloader", "Browser", BrowserType.NONE, "Select the browser you are using for cookies (NONE, chrome, firefox, edge, brave, safari).");
+            DownloadSpeed = Config.Bind("Downloader", "DownloadSpeed", 10, new ConfigDescription("Estimated download speed in Mbps (not MBps). Used for download time estimation", new AcceptableValueRange<int>(1, 100)));
 
             OpenUIKey = Config.Bind("Binds", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
             GlobalMuteKey = Config.Bind("Binds", "GlobalMuteKey", Key.M, "Key to mute all playback.");

@@ -28,14 +28,14 @@ namespace BoomBoxCartMod
         public static Dictionary<string, AudioClip> downloadedClips = new Dictionary<string, AudioClip>();
 
         // cache for song titles
-        public static Dictionary<string, string> songTitles = new Dictionary<string, string>();
+        public static Dictionary<string, SongInfo> songInfo = new Dictionary<string, SongInfo>();
 
         // tracks players ready and errors during/after download phase
         public static Dictionary<string, HashSet<int>> downloadsReady = new Dictionary<string, HashSet<int>>();
         public static Dictionary<string, HashSet<int>> downloadErrors = new Dictionary<string, HashSet<int>>();
 
-        private const float DOWNLOAD_TIMEOUT = 40f; // 40 seconds timeout for downloads
-        private const float TIMEOUT_THRESHOLD = 10f; // 10 seconds to wait after partial consensus to finish download process
+        public const int INITIAL_DOWNLOAD_TIMEOUT = 11; // 11 seconds timeout for getting song info
+        private const int TIMEOUT_THRESHOLD = 10; // 10 seconds to wait after partial consensus to finish download process
         private Dictionary<string, Coroutine> timeoutCoroutines = new Dictionary<string, Coroutine>();
 
         private Queue<string> downloadJobQueue = new Queue<string>();
@@ -180,10 +180,33 @@ namespace BoomBoxCartMod
             }
         }
 
-        // size in MB is around 1.5 * minutes at max quality, at 10 Mbps or 1.25 MB/s
-        public static float EstimateDownloadTimeSeconds(float songLength)
+
+        public static int GetBitrateKbps(string quality)
         {
-            return (1.5f * songLength / 60f) / 1.25f; 
+            return quality switch
+            {
+                "32K" => 32,
+                "64K" => 64,
+                "96K" => 96,
+                "128K" => 128,
+                _ => 192
+            };
+        }
+        public static int GetBitrateKbps(int qualityLevel)
+        {
+            return qualityLevel switch
+            {
+                0 => 32,
+                1 => 64,
+                2 => 96,
+                3 => 128,
+                _ => 192
+            };
+        }
+
+        public static double EstimateSizeBytes(int bitrateKbps, double durationSeconds)
+        {
+            return (bitrateKbps * 1000.0 / 8.0) * durationSeconds;
         }
 
         public void DownloadQueue(int startIndex)
@@ -232,15 +255,15 @@ namespace BoomBoxCartMod
         }
 
         [PunRPC]
-        public void SetSongTitle(string url, string title)
+        public void SetSongInfo(string url, string title, double duration)
         {
-            if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(title))
+            if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(title) || duration == null)
             {
                 return;
             }
 
             // Cache title
-            DownloadHelper.songTitles[url] = title;
+            DownloadHelper.songInfo[url] = new SongInfo(title, duration);
 
             bool updatedQueue = false;
 
@@ -251,6 +274,11 @@ namespace BoomBoxCartMod
                     if (song.Title != title)
                     {
                         song.Title = title;
+                        updatedQueue = true;
+                    }
+                    if (song.Duration != duration)
+                    {
+                        song.Duration = duration;
                         updatedQueue = true;
                     }
                 }
@@ -389,9 +417,27 @@ namespace BoomBoxCartMod
             }
         }
 
+        private int SongTimeout(string url)
+        {
+            double duration = songInfo[url].duration;
+            if (duration < 0) duration = 180; // Fallback for song length in seconds
+
+            double timeout = boomboxParent.EstimateDownloadTimeSeconds(duration, Instance.DownloadSpeed.Value);
+
+            return (int)Math.Round(timeout);
+        }
+
         private IEnumerator DownloadTimeoutCoroutine(string requestId, string url)
         {
-            yield return new WaitForSeconds(DOWNLOAD_TIMEOUT);
+            if (!songInfo.ContainsKey(url) || songInfo[url].duration == null)
+                yield return new WaitForSeconds(INITIAL_DOWNLOAD_TIMEOUT);
+
+            if (songInfo.ContainsKey(url) && songInfo[url].duration != null)
+            {
+                int timeout = SongTimeout(url);
+                Logger.LogInfo($"Estimated download time: {timeout}");
+                yield return new WaitForSeconds(timeout);
+            }
 
             if (currentRequestId == requestId && isProcessingQueue)
             {
@@ -560,7 +606,7 @@ namespace BoomBoxCartMod
                 Logger.LogInfo($"Ready to proceed with playback. Ready: {readyCount}, Errors: {errorCount}, Total: {totalPlayers} for url: {url}");
         }
 
-        public static async Task<AudioClip> GetAudioClipAsync(string filePath)
+        public static async Task<AudioClip> GetAudioClipAsync(string filePath, SongInfo info)
         {
             await Task.Yield(); // Render frame before running function
 
@@ -579,7 +625,7 @@ namespace BoomBoxCartMod
 
             using (UnityWebRequest www = UnityWebRequestMultimedia.GetAudioClip(uri, AudioType.MPEG))
             {
-                www.timeout = (int)DOWNLOAD_TIMEOUT;
+                www.timeout = (int)INITIAL_DOWNLOAD_TIMEOUT;
                 ((DownloadHandlerAudioClip)www.downloadHandler).streamAudio = true; // Eliminate stutter by loading the clip dynamically
 
                 TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
@@ -613,30 +659,31 @@ namespace BoomBoxCartMod
             {
                 try
                 {
-                    var title = await YoutubeDL.DownloadAudioTitleAsync(url);
+                    var info = await YoutubeDL.DownloadAudioInfoAsync(url);
 
-                    songTitles[url] = title;
+                    songInfo[url] = info;
 
                     BaseListener.RPC(
                         photonView, 
-                        nameof(SetSongTitle),
+                        nameof(SetSongInfo),
                         RpcTarget.All,
                         url,
-                        title
+                        info.title,
+                        info.duration
                     );
                     //Logger.LogInfo($"Set song title for url: {url} to {title}");
 
-                    var filePath = await YoutubeDL.DownloadAudioAsync(url, title);
+                    var filePath = await YoutubeDL.DownloadAudioAsync(url, info);
 
                     if (boomboxParent?.data?.currentSong?.Url == url)
                     {
-                        boomboxParent?.UpdateUIStatus($"Processing audio: {title}");
+                        boomboxParent?.UpdateUIStatus($"Processing audio: {info.title}");
                     }
 
-                    AudioClip clip = await GetAudioClipAsync(filePath);
+                    AudioClip clip = await GetAudioClipAsync(filePath, info);
 
                     downloadedClips[url] = clip;
-                    Logger.LogInfo($"Downloaded and cached clip for video: {title}");
+                    Logger.LogInfo($"Downloaded and cached clip for video: {info.title}");
                 }
                 catch (Exception ex)
                 {
@@ -681,6 +728,7 @@ namespace BoomBoxCartMod
             }
             */
 
+            /* Now done in SetSongTitle RPC
             if (boomboxParent?.data?.playbackQueue != null)
             {
                 foreach (AudioEntry song in boomboxParent.data.playbackQueue.FindAll(entry => entry.Url == url))
@@ -689,6 +737,7 @@ namespace BoomBoxCartMod
                         song.Title = songTitles[url];
                 }
             }
+            */
 
             return true;
         }
@@ -708,9 +757,9 @@ namespace BoomBoxCartMod
                 //Logger.LogInfo($"Removed clip for url: {url} from cache");
             }
 
-            if (songTitles.ContainsKey(url))
+            if (songInfo.ContainsKey(url))
             {
-                songTitles.Remove(url);
+                songInfo.Remove(url);
             }
 
             if (downloadsReady.ContainsKey(url))
