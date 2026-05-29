@@ -132,6 +132,7 @@ namespace BoomBoxCartMod
                     else
                     {
                         data.currentSong = null;
+                        data.playbackTime = 0;
                         data.isPlaying = false;
                         SetPlaybackReferenceFromSeconds(0f);
                         PublishSharedState(true);
@@ -680,11 +681,12 @@ namespace BoomBoxCartMod
             if (noCurrentSong)
             {
                 data.currentSong = song;
+                data.playbackTime = 0;
                 Logger.LogDebug($"Set currentsong local {data.currentSong}");
                 StopLocalPlayback(true);
                 data.pendingPlaybackStart = true;
                 startPlayBackOnDownload = true;
-                SetPlaybackReferenceFromSeconds(song.PeekStartTime(this));
+                SetPlaybackReferenceFromSeconds(song.UseStartTime(this));
             }
 
             PublishSharedState(noCurrentSong, true);
@@ -811,6 +813,7 @@ namespace BoomBoxCartMod
 
             data.currentSong = data.playbackQueue[index];
             StopLocalPlayback(true);
+            data.playbackTime = 0;
             data.pendingPlaybackStart = true;
             startPlayBackOnDownload = true;
             PublishSharedState(true);
@@ -1016,6 +1019,7 @@ namespace BoomBoxCartMod
                 {
                     data.currentSong = null;
                     data.isPlaying = false;
+                    data.playbackTime = 0;
                     data.pendingPlaybackStart = false;
                     SetPlaybackReferenceFromSeconds(0f);
                 }
@@ -1029,9 +1033,10 @@ namespace BoomBoxCartMod
 
                     data.currentSong = data.playbackQueue[replacementIndex];
                     data.isPlaying = false;
+                    data.playbackTime = 0;
                     data.pendingPlaybackStart = true;
                     startPlayBackOnDownload = true;
-                    SetPlaybackReferenceFromSeconds(data.currentSong.PeekStartTime(this));
+                    SetPlaybackReferenceFromSeconds(data.currentSong.UseStartTime(this));
                 }
             }
 
@@ -1353,7 +1358,7 @@ namespace BoomBoxCartMod
                 Duration = info.duration;
             }
 
-            public int PeekStartTime(Boombox boombox)
+            private int PeekStartTime(Boombox boombox)
             {
                 if (boombox.data != null && boombox.data.playbackTime != 0) // Restoring from previous level, otherwise playbacktime == 0
                 {
