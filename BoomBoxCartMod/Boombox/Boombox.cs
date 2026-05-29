@@ -6,9 +6,12 @@ using BoomBoxCartMod.Util;
 using System;
 using BepInEx.Logging;
 using System.Linq;
+using Newtonsoft.Json;
 using static BoomBoxCartMod.Boombox;
 using PhotonHashtable = ExitGames.Client.Photon.Hashtable;
 using System.Reflection;
+using System.Security.Policy;
+using System.Collections;
 
 namespace BoomBoxCartMod
 {
@@ -18,54 +21,27 @@ namespace BoomBoxCartMod
         private static ManualLogSource Logger => Instance.logger;
 
         public PhotonView photonView;
-        public AudioSource audioSource;
+        public AudioPlayer audioPlayer;
         public Visualizer visualizer;
+        public VisualEffects visualEffects;
 
         public DownloadHelper downloadHelper = null;
 
         bool syncFinished = false; // Only applies to master client
 
-        public float minDistance = 3f;
-        public float maxDistanceBase = 15f;
-        public float maxDistanceAddition = 30f;
-
-        public bool isAwaitingSyncPlayback = false;
         public bool startPlayBackOnDownload = true;
         public BoomboxData data = new BoomboxData(); // Initialized using BaseListener.InitializeBoomboxData when BoomBox is created 
 
-        private AudioLowPassFilter lowPassFilter;
-        public static int qualityLevel = 4; // 0 lowest, 4 highest
-
         private static bool mutePressed = false;
-        private const string SharedStatePropertyPrefix = "boomboxState.";
 
         private bool isApplyingSharedState = false;
-        private string lastSharedStateJson = null;
         private string pendingCurrentSongDownloadUrl = null;
         private int lastAppliedSharedStateVersion = -1;
+        private PhotonHashtable lastSharedState = null;
 
-        [Serializable]
-        private class SharedBoomboxState
-        {
-            public int version;
-            public string key;
-            public bool isPlaying;
-            public bool pendingPlaybackStart;
-            public float absVolume;
-            public bool loopQueue;
-            public int currentSongIndex = -1;
-            public int playbackStartTimestamp;
-            public int playbackTime;
-            public string[] queueTitles = Array.Empty<string>();
-            public string[] queueUrls = Array.Empty<string>();
-            public double[] queueDurations = Array.Empty<double>();
-            public int[] queueStartTimes = Array.Empty<int>();
-            public SharedAudioEntry[] queue = Array.Empty<SharedAudioEntry>();
-        }
-
-        [Serializable]
         private class SharedAudioEntry
         {
+
             public string title;
             public string url;
             public double duration;
@@ -74,39 +50,13 @@ namespace BoomBoxCartMod
 
         private void Awake()
         {
-            audioSource = gameObject.AddComponent<AudioSource>();
-            audioSource.volume = 0.15f;
-            audioSource.spatialBlend = 1f;
-            audioSource.playOnAwake = false;
-            //audioSource.minDistance = 3f;
-            //audioSource.maxDistance = 13f;
-            //AnimationCurve curve = new AnimationCurve(
-            //	new Keyframe(0f, 1f), // full volume at 0 distance
-            //	//new Keyframe(3f, 0.8f),
-            //	new Keyframe(6f, 1f),
-            //	new Keyframe(10f, 0.5f),
-            //	new Keyframe(13f, 0f) // fully silent at maxDistance
-            //);
-            //audioSource.SetCustomCurve(AudioSourceCurveType.CustomRolloff, curve);
-            audioSource.rolloffMode = AudioRolloffMode.Custom;
-            audioSource.spread = 90f;
-            audioSource.dopplerLevel = 0f;
-            audioSource.reverbZoneMix = 1f;
-            audioSource.spatialize = true;
-            audioSource.loop = false; // Handled in Update() since we are using a queue
-            audioSource.mute = Instance.baseListener.audioMuted;
-            lowPassFilter = gameObject.AddComponent<AudioLowPassFilter>();
-            lowPassFilter.enabled = false;
+            audioPlayer = gameObject.AddComponent<AudioPlayer>();
 
             downloadHelper = gameObject.AddComponent<DownloadHelper>();
-
-            UpdateAudioRangeBasedOnVolume(audioSource.volume);
 
             //Logger.LogInfo($"AudioSource: {audioSource}");
             photonView = GetComponent<PhotonView>();
             //Logger.LogInfo($"PhotonView: {photonView}");
-
-            isAwaitingSyncPlayback = data.pendingPlaybackStart;
 
             if (photonView == null)
             {
@@ -124,12 +74,18 @@ namespace BoomBoxCartMod
             if (GetComponent<Visualizer>() == null)
             {
                 visualizer = gameObject.AddComponent<Visualizer>();
-                visualizer.audioSource = audioSource; // Explicitly set the audiosource
+                visualizer.audioSource = audioPlayer.audioSource; // Explicitly set the audiosource
+            }
+
+            if (GetComponent<VisualEffects>() == null)
+            {
+                visualEffects = gameObject.AddComponent<VisualEffects>();
+
             }
 
             PersistentData.SetBoomboxViewInitialized(photonView.ViewID);
 
-            Logger.LogInfo($"Boombox initialized on this cart. AudioSource: {audioSource}, PhotonView: {photonView}");
+            Logger.LogInfo($"Boombox initialized on this cart. AudioPlayer: {audioPlayer}, PhotonView: {photonView}");
         }
 
         private void Start()
@@ -154,11 +110,7 @@ namespace BoomBoxCartMod
                 monsterAttractTimer = 0f;
             }
 
-            if (Instance.baseListener.audioMuted != audioSource.mute)
-            {
-                audioSource.mute = Instance.baseListener.audioMuted;
-            }
-
+            AudioSource audioSource = audioPlayer.audioSource;
             bool songReachedEnd = audioSource.clip != null
                 && audioSource.time >= Math.Max(0f, audioSource.clip.length - 0.05f);
 
@@ -168,9 +120,11 @@ namespace BoomBoxCartMod
                 if (currentIndex == -1)
                 {
                     DismissQueueLocal();
+                    Logger.LogDebug("Dismiss queue, invalid current song.");
                 }
                 else if (currentIndex + 1 >= data.playbackQueue.Count)
                 {
+                    Logger.LogDebug("Finish playing song");
                     if (LoopQueue && data.playbackQueue.Count > 0)
                     {
                         SelectSongIndex(0);
@@ -180,7 +134,7 @@ namespace BoomBoxCartMod
                         data.currentSong = null;
                         data.isPlaying = false;
                         SetPlaybackReferenceFromSeconds(0f);
-                        PublishSharedState();
+                        PublishSharedState(true);
                     }
                 }
                 else
@@ -195,27 +149,19 @@ namespace BoomBoxCartMod
             data.isPlaying = value;
         }
 
-        public static long GetCurrentTimeMilliseconds()
+        public static long GetCurrentServerTimeMilliseconds()
         {
             return PhotonNetwork.ServerTimestamp;
         }
 
         public long GetRelativePlaybackMilliseconds()
         {
-            return GetCurrentTimeMilliseconds() - (long)Math.Round(GetTrackedPlaybackSeconds() * 1000f);
+            return GetCurrentServerTimeMilliseconds() - (long)Math.Round(GetTrackedPlaybackSeconds() * 1000f);
         }
 
         private float monsterAttractTimer = 0f;
         private float monsterAttractInterval = 1.0f; // every second
 
-        public static SongInfo GetSongInfo(string url)
-        {
-            if (DownloadHelper.songInfo.ContainsKey(url))
-            {
-                return DownloadHelper.songInfo[url];
-            }
-            return null;
-        }
 
         public int GetCurrentSongIndex()
         {
@@ -226,95 +172,45 @@ namespace BoomBoxCartMod
             return data.playbackQueue.IndexOf(data.currentSong);
         }
 
-        private string GetSharedStatePropertyKey()
+        private PhotonHashtable CreateSharedState(bool includeTime, bool updateQueue)
         {
-            return SharedStatePropertyPrefix + photonView.ViewID;
-        }
 
-        private SharedBoomboxState CreateSharedState()
-        {
-            return new SharedBoomboxState
+            PhotonHashtable table = new PhotonHashtable
             {
-                version = data.stateVersion,
-                key = data.key,
-                isPlaying = data.currentSong != null && data.isPlaying,
-                pendingPlaybackStart = data.currentSong != null && data.pendingPlaybackStart,
-                absVolume = data.absVolume,
-                loopQueue = data.loopQueue,
-                currentSongIndex = GetCurrentSongIndex(),
-                playbackStartTimestamp = data.playbackStartTimestamp,
-                playbackTime = data.playbackTime,
-                queueTitles = data.playbackQueue.Select(entry => entry.Title).ToArray(),
-                queueUrls = data.playbackQueue.Select(entry => entry.Url).ToArray(),
-                queueDurations = data.playbackQueue.Select(entry => entry.Duration).ToArray(),
-                queueStartTimes = data.playbackQueue.Select(entry => entry.StartTime).ToArray(),
-                queue = data.playbackQueue.Select(entry => new SharedAudioEntry
-                {
-                    title = entry.Title,
-                    url = entry.Url,
-                    duration = entry.Duration,
-                    startTime = entry.StartTime
-                }).ToArray()
+                { "propVersion", data.stateVersion },
+                { "IDKey", data.key },
+                { "isPlaying", data.currentSong != null && data.isPlaying },
+                { "pendingPlaybackStart", data.pendingPlaybackStart },
+                { "absVolume", data.absVolume },
+                { "loopQueue", data.loopQueue },
+                { "underglow", data.underglowEnabled },
+                { "visualizer", data.visualizerEnabled },
+                { "currentSongIndex", GetCurrentSongIndex() }
             };
-        }
 
-        private List<AudioEntry> CreateQueueFromState(SharedBoomboxState state)
-        {
-            if (state.queueUrls != null && state.queueUrls.Length > 0)
+            if (includeTime)
             {
-                List<AudioEntry> queueFromArrays = new List<AudioEntry>(state.queueUrls.Length);
-
-                for (int index = 0; index < state.queueUrls.Length; index++)
-                {
-                    string url = state.queueUrls[index];
-                    string title = state.queueTitles != null && index < state.queueTitles.Length && !string.IsNullOrWhiteSpace(state.queueTitles[index])
-                        ? state.queueTitles[index]
-                        : "Unknown Title";
-                    double duration = state.queueDurations[index] != null ? state.queueDurations[index] : -1;
-                    int startTime = state.queueStartTimes != null && index < state.queueStartTimes.Length
-                        ? state.queueStartTimes[index]
-                        : 0;
-
-                    SongInfo info = new SongInfo(title, duration);
-
-                    if (!string.IsNullOrWhiteSpace(url) && !DownloadHelper.songInfo.ContainsKey(url))
-                    {
-                        DownloadHelper.songInfo[url] = info;
-                    }
-
-                    queueFromArrays.Add(new AudioEntry(url, info)
-                    {
-                        StartTime = startTime
-                    });
-                }
-
-                return queueFromArrays;
+                // Don't always include as this causes audio stutters
+                table.Add("playbackStartTimestamp", data.playbackStartTimestamp);
             }
 
-            if (state.queue == null)
+            if (updateQueue)
             {
-                return new List<AudioEntry>();
+                table.Add("queue",
+                    JsonConvert.SerializeObject(
+                        data.playbackQueue.Select(entry => new SharedAudioEntry
+                        {
+                            title = entry.Title,
+                            url = entry.Url,
+                            duration = entry.Duration,
+                            startTime = entry.StartTime
+                        }).ToArray()
+                        )
+                );
+                Logger.LogDebug($"Created table with queue size: {(JsonConvert.DeserializeObject<SharedAudioEntry[]>((string)table["queue"])).Count()}");
             }
-
-            return state.queue.Select(entry =>
-            {
-                string title = string.IsNullOrWhiteSpace(entry.title) ? "Unknown Title" : entry.title;
-                double duration = entry.duration != null ? entry.duration : -1;
-                string url = entry.url;
-
-                SongInfo info = new SongInfo(title, duration);
-
-                if (!string.IsNullOrWhiteSpace(url) && !DownloadHelper.songInfo.ContainsKey(url))
-                {
-                    DownloadHelper.songInfo[url] = info;
-                }
-
-                return new AudioEntry(url, info)
-                {
-                    StartTime = entry.startTime
-                };
-            }).ToList();
-        }
+            return table;
+        } 
 
         private void LoadSharedStateFromRoom()
         {
@@ -323,17 +219,13 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(GetSharedStatePropertyKey(), out object rawValue)
-                && rawValue is string json
-                && !string.IsNullOrWhiteSpace(json))
-            {
-                ApplySharedStateJson(json);
-                return;
-            }
+            PhotonHashtable properties = PhotonNetwork.CurrentRoom.CustomProperties;
 
-            if (PhotonNetwork.IsMasterClient)
+            ApplyChangedValues(properties);
+
+            if (PhotonNetwork.IsMasterClient && properties.Count > 0)
             {
-                PublishSharedState(true);
+                PublishSharedState(true, true, true);
             }
         }
 
@@ -346,112 +238,181 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (propertiesThatChanged.TryGetValue(GetSharedStatePropertyKey(), out object rawValue)
-                && rawValue is string json
-                && !string.IsNullOrWhiteSpace(json))
-            {
-                ApplySharedStateJson(json);
-            }
+            ApplyChangedValues(propertiesThatChanged);
         }
 
-        private void ApplySharedStateJson(string json)
+        private void ApplyChangedValues(PhotonHashtable propertiesThatChanged)
         {
-            SharedBoomboxState state;
+            isApplyingSharedState = true;
 
-            try
+            if (!propertiesThatChanged.ContainsKey("propVersion"))
             {
-                state = JsonUtility.FromJson<SharedBoomboxState>(json);
+                isApplyingSharedState = false;
+                return;
+            }
+            int version = (int)propertiesThatChanged["propVersion"];
+
+            if (version < data.stateVersion)
+            {
+                isApplyingSharedState = false;
+                return;
+            }
+
+
+            int currentSongIndex = GetCurrentSongIndex();
+            bool changedQueue = propertiesThatChanged.ContainsKey("queue");
+
+            try // if statements, because they need to be in a certain order
+            {
+                if (changedQueue)
+                {
+                    string value = (string)propertiesThatChanged["queue"];
+
+                    SharedAudioEntry[] queue = JsonConvert.DeserializeObject<SharedAudioEntry[]>(value);
+
+                    if (queue != null)
+                    {
+                        data.playbackQueue = queue.Select(entry =>
+                        {
+                            string title = string.IsNullOrWhiteSpace(entry.title) ? "Unknown Title" : entry.title;
+                            double duration = entry.duration != null ? entry.duration : -1;
+                            string url = entry.url;
+
+                            SongInfo info = new SongInfo(title, duration);
+
+                            return new AudioEntry(url, info)
+                            {
+                                StartTime = entry.startTime
+                            };
+                        }).ToList();
+                        Logger.LogDebug($"Updated queue to size {data.playbackQueue.Count}.");
+                    }
+                    else
+                    {
+                        data.playbackQueue = new List<AudioEntry>();
+                    }
+                }
+
+                if (propertiesThatChanged.ContainsKey("currentSongIndex"))
+                {
+                    int index = (int)propertiesThatChanged["currentSongIndex"];
+
+                    if (index >= 0 && index < data.playbackQueue.Count)
+                    {
+                        data.currentSong = data.playbackQueue[index];
+                    }
+                    else
+                    {
+                        data.currentSong = null;
+                        data.pendingPlaybackStart = false;
+                        audioPlayer.Stop();
+                        UpdateUIStatus("Ready to play music! Enter a Video URL");
+                        Logger.LogDebug($"Invalid currentsong index: {index}.");
+                    }
+                }
+                else if (changedQueue)
+                {
+                    // This is required, because currentsong is an object reference inside of playback queue, which we have modified - and took me way too long to figure out
+                    data.currentSong = data.playbackQueue[currentSongIndex];
+                }
+
+                if (propertiesThatChanged.ContainsKey("pendingPlaybackStart"))
+                {
+                    bool pendingStart = (bool)propertiesThatChanged["pendingPlaybackStart"];
+                    data.pendingPlaybackStart = pendingStart;
+                }
+
+                if (propertiesThatChanged.ContainsKey("isPlaying"))
+                {
+                    bool playing = (bool)propertiesThatChanged["isPlaying"];
+                    data.isPlaying = data.currentSong != null && playing;
+                }
+
+                if (propertiesThatChanged.ContainsKey("absVolume"))
+                {
+                    float val = (float)propertiesThatChanged["absVolume"];
+                    float volume = Mathf.Clamp01(Convert.ToSingle(val));
+
+                    if (data.absVolume != volume)
+                    {
+                        data.absVolume = volume;
+                        float actualVolume = volume * data.personalVolumePercentage;
+                        audioPlayer.SetVolume(actualVolume);
+                    }
+                }
+
+                if (propertiesThatChanged.ContainsKey("loopQueue"))
+                {
+                    bool loop = (bool)propertiesThatChanged["loopQueue"];
+                    data.loopQueue = loop;
+                }
+
+                if (propertiesThatChanged.ContainsKey("underglow") && Instance.SyncVisuals.Value)
+                {
+                    bool enabled = (bool)propertiesThatChanged["underglow"];
+                    data.underglowEnabled = enabled;
+                    ApplyVisualStateFromData();
+                    GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+                }
+
+                if (propertiesThatChanged.ContainsKey("visualizer") && Instance.SyncVisuals.Value)
+                {
+                    bool enabled = (bool)propertiesThatChanged["visualizer"];
+                    data.visualizerEnabled = enabled;
+                    ApplyVisualStateFromData();
+                    GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+                }
+
+                if (propertiesThatChanged.ContainsKey("playbackStartTimestamp"))
+                {
+                    int time = (int)propertiesThatChanged["playbackStartTimestamp"];
+                    data.playbackStartTimestamp = time;
+                    SetPlaybackTime(time);
+                }
+
+
+                if (propertiesThatChanged.ContainsKey("IDKey"))
+                {
+                    string k = (string)propertiesThatChanged["IDKey"];
+                    if (!string.IsNullOrWhiteSpace(k))
+                    {
+                        data.key = k;
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Failed to deserialize boombox state for cart {photonView?.ViewID}: {ex.Message}");
-                return;
+                Logger.LogWarning($"Error occured while reading properties: {ex.Message}");
             }
 
-            if (state == null)
-            {
-                Logger.LogWarning($"Deserialized boombox state for cart {photonView?.ViewID} is null.");
-                return;
-            }
+            ApplySharedPlaybackState();
 
-            if (state.version < lastAppliedSharedStateVersion)
-            {
-                Logger.LogInfo($"Ignoring older boombox state for cart {photonView?.ViewID}. Behind by {lastAppliedSharedStateVersion - state.version} versions.");
-                return;
-            }
+            GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
 
-            lastSharedStateJson = json;
-            lastAppliedSharedStateVersion = state.version;
-            ApplySharedState(state);
+            syncFinished = true;
+
+            isApplyingSharedState = false;
         }
 
-        private void ApplySharedState(SharedBoomboxState state)
-        {
-            int previousIndex = GetCurrentSongIndex();
-            string previousUrl = data.currentSong?.Url;
-
-            isApplyingSharedState = true;
-
-            try
-            {
-                data.key = string.IsNullOrWhiteSpace(state.key) ? data.key : state.key;
-                data.stateVersion = Math.Max(data.stateVersion, state.version);
-                data.playbackQueue = CreateQueueFromState(state);
-                data.absVolume = Mathf.Clamp01(state.absVolume);
-                data.loopQueue = state.loopQueue;
-                data.playbackTime = Math.Max(0, state.playbackTime);
-                data.playbackStartTimestamp = state.playbackStartTimestamp;
-
-                if (state.currentSongIndex >= 0 && state.currentSongIndex < data.playbackQueue.Count)
-                {
-                    data.currentSong = data.playbackQueue[state.currentSongIndex];
-                }
-                else
-                {
-                    data.currentSong = null;
-                }
-
-                data.pendingPlaybackStart = data.currentSong != null && state.pendingPlaybackStart;
-                data.isPlaying = data.currentSong != null && state.isPlaying;
-
-                float actualVolume = data.absVolume * data.personalVolumePercentage;
-                audioSource.volume = actualVolume;
-                UpdateAudioRangeBasedOnVolume(actualVolume);
-                ApplyVisualStateFromData();
-
-                bool songChanged = previousIndex != state.currentSongIndex || previousUrl != data.currentSong?.Url;
-                ApplySharedPlaybackState(songChanged);
-
-                GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
-                UpdateStatusFromState();
-                syncFinished = true;
-            }
-            finally
-            {
-                isApplyingSharedState = false;
-            }
-        }
-
-        private void ApplySharedPlaybackState(bool songChanged)
+        private void ApplySharedPlaybackState()
         {
             if (data.currentSong?.Url == null)
             {
-                isAwaitingSyncPlayback = false;
+                Logger.LogDebug($"ApplySharedPlaybackState: No current song{(data.currentSong == null ? "" : "URL")}!");
                 data.pendingPlaybackStart = false;
-                StopLocalPlayback(false);
+                audioPlayer.Stop();
                 UpdateUIStatus("Ready to play music! Enter a Video URL");
                 return;
             }
 
-            AudioClip clip = data.currentSong.GetAudioClip();
+            AudioClip clip = data.currentSong?.GetAudioClip();
 
             if (clip == null)
             {
-                StopLocalPlayback(false);
-                isAwaitingSyncPlayback = data.pendingPlaybackStart;
+                audioPlayer.Stop();
                 startPlayBackOnDownload = data.pendingPlaybackStart;
 
-                if (songChanged || data.pendingPlaybackStart)
+                if (data.pendingPlaybackStart)
                 {
                     UpdateUIStatus($"Loading: {data.currentSong.Title}");
                 }
@@ -463,40 +424,44 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            isAwaitingSyncPlayback = data.pendingPlaybackStart;
-
-            if (audioSource.clip != clip)
+            if (audioPlayer.GetClip() != clip)
             {
-                audioSource.clip = clip;
-                SetQuality(qualityLevel);
-                UpdateAudioRangeBasedOnVolume(audioSource.volume);
+                audioPlayer.Stop();
+                audioPlayer.audioSource.clip = clip;
+                audioPlayer.SetQuality(AudioPlayer.GetQuality());
+                audioPlayer.UpdateAudioRangeBasedOnVolume();
             }
 
-            SetPlaybackTime(data.playbackStartTimestamp);
-
+            ApplyVisualStateFromData();
+            
             if (data.pendingPlaybackStart)
             {
-                if (audioSource.isPlaying)
+                if (audioPlayer.IsPlaying())
                 {
-                    audioSource.Pause();
+                    audioPlayer.Pause();
                 }
 
                 UpdateUIStatus($"Loading: {data.currentSong.Title}");
             }
             else if (data.isPlaying)
             {
-                if (!audioSource.isPlaying)
+                if (!audioPlayer.IsPlaying())
                 {
-                    audioSource.Play();
+                    Logger.LogDebug($"ApplySharedPlaybackState: Starting playback - timestamp={data.playbackStartTimestamp}");
+
+                    audioPlayer.Play();
+                    SetPlaybackTime(data.playbackStartTimestamp);
+
+                    Logger.LogDebug($"ApplySharedPlaybackState: After Play(), audioPlayer.GetTime()={audioPlayer.GetTime()}");
                 }
 
                 UpdateUIStatus($"Now playing: {data.currentSong.Title}");
             }
             else
             {
-                if (audioSource.isPlaying)
+                if (audioPlayer.IsPlaying())
                 {
-                    audioSource.Pause();
+                    audioPlayer.Pause();
                 }
 
                 UpdateUIStatus($"Ready to play: {data.currentSong.Title}");
@@ -505,28 +470,27 @@ namespace BoomBoxCartMod
 
         public void ApplyVisualStateFromData()
         {
-            VisualEffects effects = GetComponent<VisualEffects>();
-            if (effects == null)
+            if (visualEffects == null)
             {
-                effects = gameObject.AddComponent<VisualEffects>();
+                visualEffects = gameObject.AddComponent<VisualEffects>();
+
+                visualizer.audioSource = audioPlayer.audioSource;
             }
 
-            effects.SetLights(data.underglowEnabled);
+            visualEffects.SetLights(data.underglowEnabled);
 
-            Visualizer currentVisualizer = GetComponent<Visualizer>();
             if (data.visualizerEnabled)
             {
-                if (currentVisualizer == null)
+                if (visualizer == null)
                 {
-                    currentVisualizer = gameObject.AddComponent<Visualizer>();
+                    visualizer = gameObject.AddComponent<Visualizer>();
                 }
 
-                currentVisualizer.audioSource = audioSource;
-                visualizer = currentVisualizer;
+                visualizer.audioSource = audioPlayer.audioSource;
             }
-            else if (currentVisualizer != null)
+            else if (visualizer != null)
             {
-                Destroy(currentVisualizer);
+                Destroy(visualizer);
                 visualizer = null;
             }
         }
@@ -547,7 +511,16 @@ namespace BoomBoxCartMod
 
             try
             {
-                await downloadHelper.StartAudioDownload(url);
+                if (await downloadHelper.StartAudioDownload(url))
+                {
+                    BaseListener.RPC(
+                        photonView,
+                        nameof(DownloadHelper.ReportDownloadComplete),
+                        RpcTarget.MasterClient,
+                        url,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                }
             }
             finally
             {
@@ -562,7 +535,7 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            ApplySharedPlaybackState(false);
+            ApplySharedPlaybackState();
         }
 
         private void UpdateStatusFromState()
@@ -585,80 +558,75 @@ namespace BoomBoxCartMod
             }
         }
 
-        public void PublishSharedState(bool force = false)
+        public bool CanPublish()
         {
-            if (isApplyingSharedState
-                || !PhotonNetwork.IsConnected
-                || PhotonNetwork.CurrentRoom == null
-                || photonView == null)
-            {
+            return !isApplyingSharedState
+                && PhotonNetwork.IsConnected
+                && PhotonNetwork.CurrentRoom != null
+                && photonView != null;
+        }
+
+        public void PublishSharedState(bool updateTime, bool updateQueue = false, bool force = false)
+        {
+            if (!CanPublish())
                 return;
-            }
 
             if (PhotonNetwork.IsMasterClient)
             {
                 data.stateVersion++;
             }
 
-            SharedBoomboxState state = CreateSharedState();
-            string json = JsonUtility.ToJson(state);
-            if (!force && json == lastSharedStateJson)
-            {
-                if (PhotonNetwork.IsMasterClient)
-                {
-                    data.stateVersion--;
-                }
-                return;
-            }
+            PhotonHashtable state = CreateSharedState(updateTime, updateQueue);
 
-            PhotonHashtable properties = new PhotonHashtable
-            {
-                { GetSharedStatePropertyKey(), json }
-            };
-
-            PhotonNetwork.CurrentRoom.SetCustomProperties(properties);
-            lastSharedStateJson = json;
+            PhotonNetwork.CurrentRoom.SetCustomProperties(state);
+            lastSharedState = state;
             syncFinished = true;
         }
 
         private void StopLocalPlayback(bool updateSharedFlag)
         {
-            if (audioSource.isPlaying)
-            {
-                audioSource.Stop();
-            }
+            audioPlayer.Stop();
 
             if (updateSharedFlag)
             {
                 TogglePlaying(false);
             }
-
-            audioSource.clip = null;
         }
 
-        private void SetPlaybackReferenceFromSeconds(float seconds)
+        private void SetPlaybackReferenceFromSeconds(float totalSeconds)
         {
-            data.playbackStartTimestamp = (int)(GetCurrentTimeMilliseconds() - Math.Round(Math.Max(0f, seconds) * 1000f));
+            float clampedSeconds = Math.Max(0f, totalSeconds);
+            data.playbackStartTimestamp = (int)(GetCurrentServerTimeMilliseconds() - Math.Round(clampedSeconds * 1000f));
+            Logger.LogDebug($"SetPlaybackReferenceFromSeconds: Set to {clampedSeconds}s, timestamp={data.playbackStartTimestamp}");
         }
 
+        /*
+         * @return song playback time in seconds, e.g. 60 for 60 seconds
+         */
         private float GetTrackedPlaybackSeconds()
         {
-            if (audioSource?.clip != null)
+            if (audioPlayer?.GetClip() != null)
             {
-                if (!audioSource.isPlaying && data.playbackTime > 0 && audioSource.time <= 0f)
+                if (!audioPlayer.IsPlaying() && data.playbackTime > 0 && audioPlayer.GetTime() <= 0f)
                 {
+                    Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (not playing, time <= 0)");
                     return data.playbackTime;
                 }
 
-                return audioSource.time;
+                float audioTime = audioPlayer.GetTime();
+                Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning audioPlayer.GetTime()={audioTime}, isPlaying={audioPlayer.IsPlaying()}");
+                return audioTime;
             }
 
             if (data.playbackTime > 0)
             {
+                Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (no clip)");
                 return data.playbackTime;
             }
 
-            return Math.Max(0f, (GetCurrentTimeMilliseconds() - data.playbackStartTimestamp) / 1000f);
+            float calculatedTime = Math.Max(0f, (GetCurrentServerTimeMilliseconds() - data.playbackStartTimestamp) / 1000f);
+            Logger.LogDebug($"GetTrackedPlaybackSeconds: Calculating from timestamp: {calculatedTime}s");
+            return calculatedTime;
         }
 
         private void CleanupCurrentPlayback()
@@ -671,42 +639,12 @@ namespace BoomBoxCartMod
             return PhotonNetwork.IsConnected && PhotonNetwork.CurrentRoom != null && !PhotonNetwork.IsMasterClient;
         }
 
-        public void StartPlayBack()
-        {
-            //Logger.LogInfo("StartPlayBack() called");
-            AudioClip clip = data.currentSong?.GetAudioClip();
-
-            if (clip == null)
-            {
-                Logger.LogError("Clip not found for current song");
-                CleanupCurrentPlayback();
-                return;
-            }
-
-            if (audioSource.clip != clip)
-            {
-                CleanupCurrentPlayback(); // Probably unnecessary
-                audioSource.clip = clip;
-                SetQuality(qualityLevel);
-                UpdateAudioRangeBasedOnVolume(audioSource.volume);
-                audioSource.Play(); // Need to call twice for some reason for MasterClient only autoresume
-            }
-            audioSource.Play();
-            TogglePlaying(true);
-
-            //Logger.LogInfo($"StartPlayBack() finished, clip={audioSource.clip != null} volume={audioSource.volume} playing={audioSource.isPlaying}");
-        }
-
-        public void PausePlayBack()
-        {
-            audioSource.Pause();
-            TogglePlaying(false);
-        }
-
         //(long)(Boombox.GetCurrentTimeMilliseconds() - Math.Round(timeInSeconds * 1000f)) // Need to round
-        public void SetPlaybackTime(long startTimeMillis)
+        public void SetPlaybackTime(long relativeStartTimeMillis)
         {
-            audioSource.time = Math.Max(0f, (GetCurrentTimeMilliseconds() - startTimeMillis)) / 1000f;
+            float targetTime = Math.Max(0f, (GetCurrentServerTimeMilliseconds() - relativeStartTimeMillis) / 1000f);
+            Logger.LogDebug($"SetPlaybackTime: Setting audioPlayer time to {targetTime}s (from timestamp {relativeStartTimeMillis})");
+            audioPlayer.SetTime(targetTime);
         }
 
         public void EnqueueSongLocal(string url, int seconds)
@@ -737,17 +675,19 @@ namespace BoomBoxCartMod
 
             data.playbackQueue.Add(song);
 
-            if (data.currentSong == null)
+            bool noCurrentSong = data.currentSong == null;
+
+            if (noCurrentSong)
             {
                 data.currentSong = song;
-                data.isPlaying = false;
+                Logger.LogDebug($"Set currentsong local {data.currentSong}");
+                StopLocalPlayback(true);
                 data.pendingPlaybackStart = true;
-                isAwaitingSyncPlayback = PhotonNetwork.IsMasterClient;
                 startPlayBackOnDownload = true;
                 SetPlaybackReferenceFromSeconds(song.PeekStartTime(this));
             }
 
-            PublishSharedState();
+            PublishSharedState(noCurrentSong, true);
 
             if (PhotonNetwork.IsMasterClient)
             {
@@ -769,14 +709,14 @@ namespace BoomBoxCartMod
                     photonView,
                     nameof(RequestCommitPlaybackSeek),
                     RpcTarget.MasterClient,
-                    audioSource.time,
+                    audioPlayer.GetTime(),
                     PhotonNetwork.LocalPlayer.ActorNumber
                 );
                 return;
             }
 
-            SetPlaybackReferenceFromSeconds(audioSource.time);
-            PublishSharedState();
+            SetPlaybackReferenceFromSeconds(audioPlayer.GetTime());
+            PublishSharedState(true);
         }
 
         public void SetPlaybackStateLocal(bool startPlaying)
@@ -803,27 +743,26 @@ namespace BoomBoxCartMod
                 startPlayBackOnDownload = startPlaying;
                 data.isPlaying = false;
                 data.pendingPlaybackStart = startPlaying;
-                isAwaitingSyncPlayback = PhotonNetwork.IsMasterClient && data.pendingPlaybackStart;
-                PublishSharedState();
+                PublishSharedState(true);
                 return;
             }
 
+            // When pausing: preserve current playback position
+            // When resuming: use stored playback position
             float trackedPlaybackSeconds = GetTrackedPlaybackSeconds();
+            Logger.LogDebug($"SetPlaybackStateLocal: trackedPlaybackSeconds={trackedPlaybackSeconds}, isPlaying={startPlaying}");
+            
             SetPlaybackReferenceFromSeconds(trackedPlaybackSeconds);
 
-            if (startPlaying && data.playbackTime > 0 && Math.Abs(trackedPlaybackSeconds - data.playbackTime) < 0.01f)
-            {
-                data.playbackTime = 0;
-            }
-
+            Logger.LogDebug($"SetPlaybackStateLocal: Final state - isPlaying={startPlaying}, timestamp={data.playbackStartTimestamp}");
             data.isPlaying = startPlaying;
             data.pendingPlaybackStart = false;
-            PublishSharedState();
+            PublishSharedState(true, false, true);
         }
 
         public void JumpPlaybackBySeconds(float seconds)
         {
-            if (data.currentSong == null)
+            if (data.currentSong.GetAudioClip() == null)
             {
                 return;
             }
@@ -841,14 +780,14 @@ namespace BoomBoxCartMod
             }
 
             float targetSeconds = Math.Max(0f, GetTrackedPlaybackSeconds() + seconds);
-            if (audioSource?.clip != null)
+            if (audioPlayer?.GetClip() != null)
             {
-                targetSeconds = Math.Min(targetSeconds, Math.Max(0f, audioSource.clip.length - 0.05f));
+                targetSeconds = Math.Min(targetSeconds, Math.Max(0f, audioPlayer.GetClip().length - 0.5f));
             }
 
             SetPlaybackReferenceFromSeconds(targetSeconds);
             data.pendingPlaybackStart = false;
-            PublishSharedState();
+            PublishSharedState(true);
         }
 
         public void SelectSongIndex(int index)
@@ -871,17 +810,27 @@ namespace BoomBoxCartMod
             }
 
             data.currentSong = data.playbackQueue[index];
-            data.isPlaying = false;
+            StopLocalPlayback(true);
             data.pendingPlaybackStart = true;
-            isAwaitingSyncPlayback = PhotonNetwork.IsMasterClient;
             startPlayBackOnDownload = true;
-            SetPlaybackReferenceFromSeconds(data.currentSong.PeekStartTime(this));
-            PublishSharedState();
+            PublishSharedState(true);
 
             if (PhotonNetwork.IsMasterClient)
             {
-                downloadHelper.DismissDownloadQueue();
-                downloadHelper.DownloadQueue(index);
+                string url = data.currentSong?.Url;
+
+                if (url != null && DownloadHelper.downloadsReady.ContainsKey(url) &&
+                    DownloadHelper.downloadsReady[url].Count >= Instance.baseListener.GetAllModUsers().Count &&
+                    data.pendingPlaybackStart)
+                {
+                    Logger.LogDebug("Skipping download queue, as all users are ready to play.");
+                    FinalizePendingPlaybackStart(startPlayBackOnDownload);
+                }
+                else
+                {
+                    downloadHelper.DismissDownloadQueue();
+                    downloadHelper.DownloadQueue(index);
+                }
             }
         }
 
@@ -901,9 +850,8 @@ namespace BoomBoxCartMod
 
             data.absVolume = Mathf.Clamp01(volume);
             float actualVolume = data.absVolume * data.personalVolumePercentage;
-            audioSource.volume = actualVolume;
-            UpdateAudioRangeBasedOnVolume(actualVolume);
-            PublishSharedState();
+            audioPlayer.SetVolume(actualVolume);
+            PublishSharedState(false);
         }
 
         public void SetLoopQueueLocal(bool loop)
@@ -921,30 +869,69 @@ namespace BoomBoxCartMod
             }
 
             data.loopQueue = loop;
-            PublishSharedState();
+            PublishSharedState(false);
         }
 
         public void SetUnderglowEnabledLocal(bool enabled)
         {
-            data.underglowEnabled = enabled;
-            ApplyVisualStateFromData();
-            GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+            if (Instance.SyncVisuals.Value)
+            {
+                if (ShouldRequestMasterMutation())
+                {
+                    BaseListener.RPC(
+                        photonView,
+                        nameof(RequestSetUnderglowEnabled),
+                        RpcTarget.MasterClient,
+                        enabled,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                    return;
+                }
+
+                data.underglowEnabled = enabled;
+                ApplyVisualStateFromData();
+                GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+                PublishSharedState(false);
+            }
+            else
+            {
+                data.underglowEnabled = enabled;
+                ApplyVisualStateFromData();
+                GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+            }
         }
 
         public void SetVisualizerEnabledLocal(bool enabled)
         {
-            data.visualizerEnabled = enabled;
-            ApplyVisualStateFromData();
-            GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+            if (Instance.SyncVisuals.Value)
+            {
+                if (ShouldRequestMasterMutation())
+                {
+                    BaseListener.RPC(
+                        photonView,
+                        nameof(RequestSetVisualizerEnabled),
+                        RpcTarget.MasterClient,
+                        enabled,
+                        PhotonNetwork.LocalPlayer.ActorNumber
+                    );
+                    return;
+                }
+
+                data.visualizerEnabled = enabled;
+                ApplyVisualStateFromData();
+                GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+                PublishSharedState(false);
+            }
+            else
+            {
+                data.visualizerEnabled = enabled;
+                ApplyVisualStateFromData();
+                GetComponent<BoomboxUI>()?.UpdateDataFromBoomBox();
+            }
         }
 
         public void DismissQueueLocal()
         {
-            if (!PhotonNetwork.IsMasterClient && Instance.MasterClientDismissQueue.Value)
-            {
-                return;
-            }
-
             if (ShouldRequestMasterMutation())
             {
                 BaseListener.RPC(
@@ -956,14 +943,13 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            StopLocalPlayback(false);
+            StopLocalPlayback(true);
             data.playbackQueue.Clear();
             data.currentSong = null;
-            data.isPlaying = false;
             data.pendingPlaybackStart = false;
             data.playbackTime = 0;
             SetPlaybackReferenceFromSeconds(0f);
-            PublishSharedState();
+            PublishSharedState(true, true);
 
             if (PhotonNetwork.IsMasterClient)
             {
@@ -997,7 +983,7 @@ namespace BoomBoxCartMod
             AudioEntry tempSong = data.playbackQueue[index];
             data.playbackQueue.RemoveAt(index);
             data.playbackQueue.Insert(newIndex, tempSong);
-            PublishSharedState();
+            PublishSharedState(false, true);
         }
 
         public void RemoveQueueItemLocal(int index)
@@ -1044,7 +1030,6 @@ namespace BoomBoxCartMod
                     data.currentSong = data.playbackQueue[replacementIndex];
                     data.isPlaying = false;
                     data.pendingPlaybackStart = true;
-                    isAwaitingSyncPlayback = PhotonNetwork.IsMasterClient;
                     startPlayBackOnDownload = true;
                     SetPlaybackReferenceFromSeconds(data.currentSong.PeekStartTime(this));
                 }
@@ -1056,7 +1041,7 @@ namespace BoomBoxCartMod
                 downloadHelper.DownloadQueue(GetCurrentSongIndex());
             }
 
-            PublishSharedState();
+            PublishSharedState(removedCurrentSong, true);
         }
 
         public void FinalizePendingPlaybackStart(bool startPlaying)
@@ -1066,12 +1051,11 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            isAwaitingSyncPlayback = false;
             data.pendingPlaybackStart = false;
             data.isPlaying = startPlaying;
             SetPlaybackReferenceFromSeconds(data.currentSong.UseStartTime(this));
             startPlayBackOnDownload = true;
-            PublishSharedState(true);
+            PublishSharedState(true, false, true);
         }
 
         [PunRPC]
@@ -1094,7 +1078,7 @@ namespace BoomBoxCartMod
             }
 
             SetPlaybackReferenceFromSeconds(playbackSeconds);
-            PublishSharedState();
+            PublishSharedState(true);
         }
 
         [PunRPC]
@@ -1153,9 +1137,31 @@ namespace BoomBoxCartMod
         }
 
         [PunRPC]
+        public void RequestSetUnderglowEnabled(bool enabled, int requesterId)
+        {
+            if (!PhotonNetwork.IsMasterClient || !Instance.SyncVisuals.Value)
+            {
+                return;
+            }
+
+            SetUnderglowEnabledLocal(enabled);
+        }
+
+        [PunRPC]
+        public void RequestSetVisualizerEnabled(bool enabled, int requesterId)
+        {
+            if (!PhotonNetwork.IsMasterClient || !Instance.SyncVisuals.Value)
+            {
+                return;
+            }
+
+            SetVisualizerEnabledLocal(enabled);
+        }
+
+        [PunRPC]
         public void RequestDismissQueue(int requesterId)
         {
-            if (!PhotonNetwork.IsMasterClient)
+            if (!PhotonNetwork.IsMasterClient || Instance.MasterClientDismissQueue.Value && PhotonNetwork.MasterClient.ActorNumber != requesterId)
             {
                 return;
             }
@@ -1192,73 +1198,24 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            ApplySharedPlaybackState(false);
-        }
-
-        public void SetQuality(int level)
-        {
-            qualityLevel = Mathf.Clamp(level, 0, 4);
-
-            switch (qualityLevel)
-            {
-                case 0: // hella low
-                    lowPassFilter.enabled = true;
-                    lowPassFilter.cutoffFrequency = 1500f;
-                    break;
-                case 1: // low quality
-                    lowPassFilter.enabled = true;
-                    lowPassFilter.cutoffFrequency = 3000f;
-                    break;
-                case 2: // medium-low quality
-                    lowPassFilter.enabled = true;
-                    lowPassFilter.cutoffFrequency = 4500f;
-                    break;
-                case 3: // medium-high (default rn)
-                    lowPassFilter.enabled = true;
-                    lowPassFilter.cutoffFrequency = 6000f;
-                    break;
-                case 4: // highest quality
-                    lowPassFilter.enabled = false;
-                    break;
-            }
-
-            //Logger.LogInfo($"Audio quality set to level {qualityLevel}");
+            ApplySharedPlaybackState();
         }
 
         public double EstimateDownloadTimeSeconds(double durationSeconds, int downloadSpeedMbps)
         {
-            int bitrate = DownloadHelper.GetBitrateKbps(ApplyQualityToDownloads ? 4 : Boombox.qualityLevel);
+            int bitrate = DownloadHelper.GetBitrateKbps(ApplyQualityToDownloads ? 4 : AudioPlayer.GetQuality());
 
             double sizeBytes = (bitrate * 1000.0 / 8.0) * durationSeconds;
 
             // speed in Mb/s converted to bytes/s
             double speedBytesPerSec = Math.Max(1, downloadSpeedMbps) / 8.0 * 1024 * 1024;
 
-            int overhead = 5; // 5 seconds for connection, latency, etc.
+            const int overhead = 5; // 5 seconds for connection, latency, etc.
             double downloadTime = sizeBytes / speedBytesPerSec * 2.5; // factor and overhead
             double processingTime = durationSeconds * 0.005; // FFmpeg estimate
-            double overheadMultiplier = 1.3;
+            const double overheadMultiplier = 1.3;
 
             return (overhead + downloadTime + processingTime) * overheadMultiplier;
-        }
-
-        private void UpdateAudioRangeBasedOnVolume(float volume)
-        {
-            // louder volume = hear from farther away
-            float newMaxDistance = Mathf.Lerp(maxDistanceBase, maxDistanceBase + maxDistanceAddition, volume); // More noticeable effect
-
-            audioSource.minDistance = minDistance;
-            audioSource.maxDistance = newMaxDistance;
-
-            AnimationCurve curve = new AnimationCurve(
-                new Keyframe(0f, 1f),
-                new Keyframe(minDistance, 0.9f),
-                new Keyframe(newMaxDistance, 0f)
-            );
-
-            audioSource.SetCustomCurve(AudioSourceCurveType.CustomRolloff, curve);
-
-            //Logger.LogInfo($"Updated audio range based on volume {volume}: maxDistance={newMaxDistance}");
         }
 
         public void UpdateUIStatus(string message)
@@ -1279,7 +1236,7 @@ namespace BoomBoxCartMod
             if (PhotonNetwork.IsMasterClient && !Instance.modDisabled)
             {
                 Instance.baseListener.photonView?.RPC(
-                    "ModFeedbackCheck",
+                    nameof(BaseListener),
                     newPlayer,
                     BoomBoxCartMod.modVersion,
                     PhotonNetwork.LocalPlayer.ActorNumber
@@ -1312,16 +1269,17 @@ namespace BoomBoxCartMod
         private void OnDisable()
         {
             PersistentData.RemoveBoomboxViewInitialized(photonView.ViewID);
-            data.playbackTime = (int)Math.Round(audioSource.time);
+            data.playbackTime = (int)Math.Round(audioPlayer.GetTime());
         }
 
         private void OnDestroy()
         {
             Instance.data.GetAllBoomboxes().Remove(this);
             Destroy(GetComponent<BoomboxUI>());
-            Destroy(visualizer);
-            Destroy(lowPassFilter);
-            Destroy(audioSource);
+            if (visualizer != null)
+                Destroy(visualizer);
+            Destroy(gameObject.GetComponent<VisualEffects>());
+            Destroy(audioPlayer);
             Destroy(downloadHelper);
             Destroy(gameObject.GetComponent<BoomboxController>());
             photonView.RefreshRpcMonoBehaviourCache();
@@ -1334,7 +1292,6 @@ namespace BoomBoxCartMod
 
             Logger.LogInfo($"Resetting Boombox {photonView.ViewID}");
 
-            isAwaitingSyncPlayback = false;
             startPlayBackOnDownload = true;
             data.pendingPlaybackStart = false;
             UpdateUIStatus("Ready to play music! Enter a Video URL");
@@ -1359,7 +1316,7 @@ namespace BoomBoxCartMod
                 dataStore.Insert(index, data);
             }
 
-            PublishSharedState(true);
+            PublishSharedState(true, true, true);
         }
 
         public class BoomboxData
@@ -1376,7 +1333,9 @@ namespace BoomBoxCartMod
             public bool pendingPlaybackStart = false;
             public int stateVersion = 0;
 
+            /* total playback time in seconds */
             public int playbackTime = 0;
+            /* relative playback time in milliseconds */
             public int playbackStartTimestamp = 0;
         }
 

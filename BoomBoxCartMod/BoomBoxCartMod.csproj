@@ -148,6 +148,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Boombox\AudioPlayer.cs" />
     <Compile Include="Boombox\Boombox.cs" />
     <Compile Include="Boombox\BoomboxController.cs" />
     <Compile Include="Boombox\BoomboxUI.cs" />

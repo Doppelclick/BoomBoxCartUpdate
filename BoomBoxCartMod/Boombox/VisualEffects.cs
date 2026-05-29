@@ -187,6 +187,11 @@ namespace BoomBoxCartMod
 
         public void SetLights(bool on)
         {
+            if (lightsOn == on)
+            {
+                return;
+            }
+
             lightsOn = on;
             if (frontLight != null)
             {

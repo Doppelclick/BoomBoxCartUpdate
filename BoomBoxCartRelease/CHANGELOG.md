@@ -1,4 +1,11 @@
 # Changelog
+## 1.3.4
+ - Add cookie passthrough
+ - Add javascript dependency
+ - Add download timeout estimate
+ - Fix Song Info
+ - Rework packet system
+ - Sync visual effects
 ## 1.3.3
  - Fix mod for latest REPO update
  - Fix AutoResume

@@ -217,7 +217,7 @@ namespace BoomBoxCartMod
             if (boombox != null)
             {
                 lastSentVolume = boombox.data.absVolume;
-                qualityLevel = Boombox.qualityLevel;
+                qualityLevel = AudioPlayer.GetQuality();
                 lastSentQualityLevel = qualityLevel;
                 RefreshVisualComponentRefs();
             }
@@ -269,13 +269,13 @@ namespace BoomBoxCartMod
 
 
                 if (boombox?.GetCurrentSongIndex() == songIndexForTime && songIndexForTime != -1 && // Make sure the song has not changed in the meantime
-                    boombox?.audioSource?.clip != null && boombox.audioSource.clip.length > 0)
+                    boombox?.audioPlayer?.GetClip() != null && boombox.audioPlayer.GetClip().length > 0)
                 {
-                    float actualTime = Math.Max(0f, Math.Min(songTimePerc * boombox.audioSource.clip.length, boombox.audioSource.clip.length - 0.05f));
+                    float actualTime = Math.Max(0f, Math.Min(songTimePerc * boombox.audioPlayer.GetClip().length, boombox.audioPlayer.GetClip().length - 0.05f));
 
                     // update local volume
                     //Logger.LogInfo($"Setting time locally to {actualTime}");
-                    boombox.audioSource.time = actualTime;
+                    boombox.audioPlayer.SetTime(actualTime);
 
                     boombox.CommitPlaybackSeek();
                 }
@@ -293,14 +293,6 @@ namespace BoomBoxCartMod
             {
                 lastSentVolume = boombox.data.absVolume;
 
-                // update local volume
-                if (boombox.audioSource != null)
-                {
-                    float actualVolume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
-                    //Logger.LogInfo($"Setting volume locally to {actualVolume}");
-                    boombox.audioSource.volume = actualVolume;
-                }
-
                 boombox.SetVolumeLocal(boombox.data.absVolume);
             }
         }
@@ -316,7 +308,7 @@ namespace BoomBoxCartMod
                 if (boombox != null)
                 {
                     //Logger.LogInfo($"Setting quality locally to {qualityLevel}");
-                    boombox.SetQuality(qualityLevel);
+                    boombox.audioPlayer?.SetQuality(qualityLevel);
                 }
 
                 /* Should not be a shared value really
@@ -547,12 +539,12 @@ namespace BoomBoxCartMod
                 float timeDisplayPercentage = 0f;
                 string songLengthString = "??";
 
-                bool audioAvailable = boombox != null && boombox.audioSource?.clip != null;
+                bool audioAvailable = boombox != null && boombox.audioPlayer?.GetClip() != null;
 
                 if (audioAvailable)
                 {
-                    currentTime = boombox.audioSource.time;
-                    songLength = boombox.audioSource.clip.length;
+                    currentTime = boombox.audioPlayer.audioSource.time;
+                    songLength = boombox.audioPlayer.GetClip().length;
 
                     if (songLength > 0)
                     {
@@ -597,8 +589,8 @@ namespace BoomBoxCartMod
                         if (songIndexForTime == songIndex)
                         {
                             // update time for immediate feedback while sliding
-                            float actualTime = Math.Max(0f, Math.Min(newTimePercentage * songLength, boombox.audioSource.clip.length - 0.05f));
-                            boombox.audioSource.time = actualTime;
+                            float actualTime = Math.Max(0f, Math.Min(newTimePercentage * songLength, boombox.audioPlayer.GetClip().length - 0.05f));
+                            boombox.audioPlayer.audioSource.time = actualTime;
 
                             songTimePerc = newTimePercentage;
                         }
@@ -728,10 +720,10 @@ namespace BoomBoxCartMod
                         }
 
                         // update local volume for immediate feedback while sliding
-                        if (boombox != null && boombox.audioSource != null)
+                        if (boombox.audioPlayer?.audioSource != null)
                         {
                             float actualVolume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
-                            boombox.audioSource.volume = actualVolume;
+                            boombox.audioPlayer.SetVolume(actualVolume);
                         }
 
                         boombox.data.absVolume = newNormalizedVolume;
@@ -758,8 +750,12 @@ namespace BoomBoxCartMod
                 if (newPersonalVolume != boombox.data.personalVolumePercentage)
                 {
                     isIndividualVolumeBeingDragged = true;
+                    
                     boombox.data.personalVolumePercentage = newPersonalVolume;
-                    boombox.audioSource.volume = boombox.data.absVolume * boombox.data.personalVolumePercentage;
+                    if (boombox.audioPlayer?.audioSource != null)
+                    {
+                        boombox.audioPlayer.SetVolume(boombox.data.absVolume * boombox.data.personalVolumePercentage);
+                    }
                 }
 
                 GUILayout.EndHorizontal();
@@ -788,9 +784,9 @@ namespace BoomBoxCartMod
                     qualityLevel = newQualityLevel;
 
                     // update local quality for immediate feedback while sliding
-                    if (boombox != null)
+                    if (boombox?.audioPlayer != null)
                     {
-                        boombox.SetQuality(qualityLevel);
+                        boombox.audioPlayer.SetQuality(qualityLevel);
                     }
 
                 GUILayout.EndHorizontal();

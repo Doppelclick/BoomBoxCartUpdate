@@ -29,6 +29,11 @@ namespace BoomBoxCartMod.Util
 			this.title = title;
 			this.duration = duration;
 		}
+
+		public bool IsInvalid()
+		{
+			return duration == -1 && (title.IsNullOrWhiteSpace() || title.Trim().StartsWith("Unknown Title"));
+		}
     }
 
 
@@ -54,6 +59,8 @@ namespace BoomBoxCartMod.Util
 		private static string ffmpegBinPath = Path.Combine(ffmpegFolder, "ffmpeg-master-latest-win64-gpl", "bin", "ffmpeg.exe");
 		private static readonly object initializationLock = new object();
 		private static Task initializeTask = Task.CompletedTask;
+
+		public static bool isInitializing = false;
 
 		private static bool jsInstalled = false;
         private static bool ffmpegUpdateChecked = false;
@@ -88,6 +95,7 @@ namespace BoomBoxCartMod.Util
 		private static async Task InitializeInternalAsync()
 		{
 			SetResourceUpdateStatus("Checking downloader resources...", true);
+			isInitializing = true;
 
 			try
 			{
@@ -192,6 +200,10 @@ namespace BoomBoxCartMod.Util
 				BaseListener.ReportDownloaderStatus(false);
 				SetResourceUpdateStatus("Required media tools are unavailable.", false);
 			}
+			finally
+			{
+				isInitializing = false;
+			}
         }
 
 		private static void SetResourceUpdateStatus(string message, bool updating)
@@ -283,14 +295,14 @@ namespace BoomBoxCartMod.Util
 
                 Directory.CreateDirectory(stagingFolder);
 
-                Logger.LogInfo($"Downloading: {url}");
+                Logger.LogDebug($"Downloading: {url}");
 
                 await DownloadFileAsync(url, archivePath, retries);
 
                 if (!File.Exists(archivePath))
                     throw new Exception("Archive download failed.");
 
-                Logger.LogInfo("Extracting archive...");
+                Logger.LogDebug("Extracting archive...");
 
                 string extension = Path.GetExtension(archivePath).ToLowerInvariant();
 
@@ -333,7 +345,7 @@ namespace BoomBoxCartMod.Util
                         SearchOption.AllDirectories)
                     .First();
 
-                Logger.LogInfo(
+                Logger.LogDebug(
                     $"{executableName} installed successfully.");
 
                 return executablePath;
@@ -356,8 +368,8 @@ namespace BoomBoxCartMod.Util
 			{
 				try
 				{
-					SongInfo info = Boombox.GetSongInfo(videoUrl);
-					if (info == null || string.IsNullOrWhiteSpace(info.title) || IsUnknownTitle(info.title))
+					SongInfo info = DownloadHelper.songInfo.ContainsKey(videoUrl) ? DownloadHelper.songInfo[videoUrl] : null;
+					if (info == null || info.IsInvalid())
 					{
 						info = await GetVideoTitleInternalAsync(videoUrl);
 						if (info == null || string.IsNullOrEmpty(info.title))
@@ -382,35 +394,24 @@ namespace BoomBoxCartMod.Util
 			});
 		}
 
-		private static bool IsUnknownTitle(string title)
-		{
-			if (string.IsNullOrWhiteSpace(title))
-			{
-				return true;
-			}
-
-			string trimmedTitle = title.Trim();
-			return trimmedTitle.Equals("Unknown Title", StringComparison.OrdinalIgnoreCase)
-				|| trimmedTitle.StartsWith("Unknown Title (", StringComparison.OrdinalIgnoreCase);
-		}
-
 
 		/** @Return File Path to Audio Clip **/
 		public static async Task<string> DownloadAudioAsync(string videoUrl, SongInfo info)
 		{
 			//await InitializeAsync(); Presume DownloadAudioTitleAsync was run before
 
-			string folder = Path.Combine(tempFolder, Guid.NewGuid().ToString());
+
+            string folder = Path.Combine(tempFolder, Guid.NewGuid().ToString());
 			Directory.CreateDirectory(folder);
 
-			Logger.LogInfo($"Downloading audio for {videoUrl}...");
+			Logger.LogDebug($"Downloading audio for {videoUrl}...");
 
 			return await Task.Run(async () =>
             {
 				try
 				{
 					string quality = !Boombox.ApplyQualityToDownloads ? "192K" :
-						Boombox.qualityLevel switch
+						AudioPlayer.GetQuality() switch
 							{
 								0 => "32K",
 								1 => "64K",
@@ -427,18 +428,18 @@ namespace BoomBoxCartMod.Util
                         options += $" --js-runtimes node:\"{jsRuntimePath}\"";
                     }
 
-                    if (!Instance.CookiePath.Value.IsNullOrWhiteSpace())
+                    if (Instance.CookiePassthrough.Value == BoomBoxCartMod.CookieUsage.FILE && !string.IsNullOrWhiteSpace(Instance.CookiePath.Value))
                     {
                         options += $" --cookies \"{Instance.CookiePath.Value}\"";
+						Logger.LogDebug("Attempting to use cookies from file.");
                     }
-                    else if (Instance.Browser.Value != BoomBoxCartMod.BrowserType.NONE)
+                    else if (Instance.CookiePassthrough.Value == BoomBoxCartMod.CookieUsage.BROWSER)
                     {
                         options += $" --cookies-from-browser \"{Instance.Browser.Value}\"";
+                        Logger.LogDebug("Attempting to use cookies from browser.");
                     }
 
                     string command = $"-x --audio-format mp3 --audio-quality {quality}{options} --ffmpeg-location \"{ffmpegBinPath}\" --output \"{Path.Combine(folder, noIckySpecialCharsFileName)}\" {videoUrl}";
-
-
 
                     ProcessStartInfo processInfo = new()
 					{
@@ -570,7 +571,7 @@ namespace BoomBoxCartMod.Util
 
                     try
 					{
-						Logger.LogInfo($"Got video info: {json}");
+						//Logger.LogInfo($"Got video info: {json}");
 
                         info = JsonConvert.DeserializeObject<SongInfo>(json);
 
@@ -676,7 +677,7 @@ namespace BoomBoxCartMod.Util
 				return Task.FromResult(false);
 			}
 
-			Logger.LogInfo("Starting downloader dependencies download.");
+			Logger.LogInfo("Starting downloader dependencies reinstall.");
 
 			initializeTask = InitializeInternalAsync();
 

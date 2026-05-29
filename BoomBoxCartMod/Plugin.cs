@@ -22,7 +22,7 @@ namespace BoomBoxCartMod
 	{
 		public const string modGUID = "Doppelclick.BoomboxCartUpgrade";
 		public const string modName = "BoomboxCartUpgrade";
-		public const string modVersion = "1.3.3";
+		public const string modVersion = "1.3.4";
 
 		private readonly Harmony harmony = new Harmony(modGUID);
         public BaseListener baseListener = null;
@@ -61,6 +61,7 @@ namespace BoomBoxCartMod
 		}
 
 
+        public ConfigEntry<CookieUsage> CookiePassthrough { get; private set; }
         public ConfigEntry<String> CookiePath { get; private set; }
         public ConfigEntry<BrowserType> Browser { get; private set; }
         public ConfigEntry<int> DownloadSpeed { get; private set; }
@@ -75,12 +76,13 @@ namespace BoomBoxCartMod
 
         public ConfigEntry<float> UnderglowBeatSpeed { get; private set; }
         public ConfigEntry<float> UnderglowBassBias { get; private set; }
+        public ConfigEntry<VisualizerPaused> VisualizerBehaviourPaused { get; private set; }
+        public ConfigEntry<bool> SyncVisuals { get; private set; }
+
 
         private bool resourcesReinstalling = false;
         public ConfigEntry<bool> ReinstallResources { get; private set; }
 
-
-        public ConfigEntry<VisualizerPaused> VisualizerBehaviourPaused { get; private set; }
 
         private void Awake()
 		{
@@ -94,9 +96,10 @@ namespace BoomBoxCartMod
 
 			harmony.PatchAll();
 
+            CookiePassthrough = Config.Bind("Downloader", "CookiePassthrough", CookieUsage.OFF, "Pass cookies from either your browser or an exported file. (OFF, FILE, BROWSER)");
             CookiePath = Config.Bind("Downloader", "CustomCookiePath", "", "Path to where the browser cookies are located, if the browser selection does not work.");
-            Browser = Config.Bind("Downloader", "Browser", BrowserType.NONE, "Select the browser you are using for cookies (NONE, chrome, firefox, edge, brave, safari).");
-            DownloadSpeed = Config.Bind("Downloader", "DownloadSpeed", 10, new ConfigDescription("Estimated download speed in Mbps (not MBps). Used for download time estimation", new AcceptableValueRange<int>(1, 100)));
+            Browser = Config.Bind("Downloader", "BrowserCookies", BrowserType.firefox, "Select the browser you are using for cookies (chrome, firefox, edge, brave, safari). This is unlikely to work.");
+            DownloadSpeed = Config.Bind("Downloader", "DownloadSpeed", 10, new ConfigDescription("Estimated download speed in Mbps (not MBps). Used for download timeout estimation.", new AcceptableValueRange<int>(1, 100)));
 
             OpenUIKey = Config.Bind("Binds", "OpenUIKey", Key.Y, "Key to open the Boombox UI when grabbing a cart.");
             GlobalMuteKey = Config.Bind("Binds", "GlobalMuteKey", Key.M, "Key to mute all playback.");
@@ -109,7 +112,8 @@ namespace BoomBoxCartMod
             UnderglowBeatSpeed = Config.Bind("Visual", "UnderglowBeatSpeed", 1.2f, new ConfigDescription("Scales how much detected beat energy speeds up the RGB underglow cycle. 0 = disabled, 6 = more aggressive.", new AcceptableValueRange<float>(0f, 6f)));
             UnderglowBassBias = Config.Bind("Visual", "UnderglowBassBias", 0.8f, new ConfigDescription("Blends between broad beat response and isolated low-band response. 0 = broad response, 1 = strongest bass isolation.", new AcceptableValueRange<float>(0f, 1f)));
 			VisualizerBehaviourPaused = Config.Bind("Visual", "VisualizerOnPaused", VisualizerPaused.Hide, "Visualizer behaviour when music is paused.");
-           	
+            SyncVisuals = Config.Bind("Visual", "SyncVisuals", true, "Sync if underglow/visualizer are enabled with the lobby, or only apply it to yourself.");
+
             ReinstallResources = Config.Bind("Debug", "ReinstallResources", false, "Reinstall resources on startup.");
             ReinstallResources.SettingChanged += (s, _) => { // Can rarely cause game freezes, when toggled ingame
                 if (!initialized)
@@ -171,9 +175,15 @@ namespace BoomBoxCartMod
             Hide
         }
 
+        public enum CookieUsage
+        {
+            OFF,
+            FILE,
+            BROWSER
+        }
+
         public enum BrowserType
         {
-            NONE,
             chrome,
             firefox,
             edge,
