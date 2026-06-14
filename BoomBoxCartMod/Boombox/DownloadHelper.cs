@@ -72,9 +72,9 @@ namespace BoomBoxCartMod
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             ),
 
-		// SoundCloud URLs -- TODO: Shortened links, but will never support timestamp for those
+		// SoundCloud URLs
 		new Regex(
-            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www|m)\.)?(soundcloud\.com|snd\.sc)\/([\w\-]+\/[\w\-]+))(?<TrailingParams>(?:\?(?:\S+&*?#)*?t=(?<TimeStamp>(?<Minutes>\d+)(?:\/|(?:%3A))(?<Seconds>\d{1,2})))?\S*)?$",
+            @"^(?<CleanedUrl>((?:https?:)?\/\/)?((?:www|m|on)\.)?(?:soundcloud\.com|snd\.sc)(\/[\w\-]+(?:\/[\w\-]+)?))(?<TrailingParams>(?:\?(?:\S+&*?#)*?t=(?<TimeStamp>(?<Minutes>\d+)(?:\/|(?:%3A))(?<Seconds>\d{1,2})))?\S*)?$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase
             )
         };
@@ -332,7 +332,7 @@ namespace BoomBoxCartMod
         private IEnumerator ProcessDownloadQueue()
         {
             isProcessingQueue = true;
-            Logger.LogDebug("Master Client Download Queue Processor started.");
+            Logger.LogDebug(photonView.ViewID + "Master Client Download Queue Processor started.");
 
             while (downloadJobQueue.Count > 0 && isProcessingQueue)
             {
@@ -351,7 +351,7 @@ namespace BoomBoxCartMod
             // Queue is empty, stop the processor.
             isProcessingQueue = false;
             currentDownloadUrl = null;
-            Logger.LogDebug("Master Client Download Queue Processor finished.");
+            Logger.LogDebug(photonView.ViewID + "Master Client Download Queue Processor finished.");
         }
 
         private IEnumerator MasterClientInitiateSync(string url)
@@ -420,7 +420,7 @@ namespace BoomBoxCartMod
             currentDownloadUrl = null;
             currentRequestId = null;
 
-            Logger.LogDebug($"Consensus finished for {url}, Starting Playback.");
+            Logger.LogDebug(photonView.ViewID + $"Consensus finished for {url}, Starting Playback.");
 
             if (boomboxParent?.data?.pendingPlaybackStart == true && url == boomboxParent.data.currentSong?.Url)
             {
@@ -451,7 +451,7 @@ namespace BoomBoxCartMod
             if (songInfo.ContainsKey(url) && songInfo[url].duration != null)
             {
                 int timeout = SongTimeout(url);
-                Logger.LogDebug($"Using download timeout: {timeout}");
+                Logger.LogDebug(photonView.ViewID + $"Using download timeout: {timeout}");
                 yield return new WaitForSeconds(timeout);
             }
 
@@ -712,7 +712,7 @@ namespace BoomBoxCartMod
                 AudioClip clip = await GetAudioClipAsync(filePath, info);
 
                 downloadedClips[url] = clip;
-                Logger.LogDebug($"Downloaded and cached clip for video: {info.title}");
+                Logger.LogDebug(photonView.ViewID + $"Downloaded and cached clip for video: {info.title}");
 
                 if (clip != null && info.IsInvalid())
                 {
