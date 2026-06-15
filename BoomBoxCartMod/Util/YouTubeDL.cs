@@ -275,11 +275,13 @@ namespace BoomBoxCartMod.Util
 		) {
             string archivePath = Path.Combine(
                 tempFolder,
-                Path.GetFileName(url));
+                Path.GetFileName(url)
+				);
 
             string stagingFolder = Path.Combine(
                 tempFolder,
-                "staging-" + Guid.NewGuid().ToString("N"));
+                "staging-" + Guid.NewGuid().ToString("N")
+				);
 
             try
             {
@@ -314,8 +316,7 @@ namespace BoomBoxCartMod.Util
                 }
                 else
                 {
-                    throw new Exception(
-                        $"Unsupported archive type: {extension}");
+                    throw new Exception($"Unsupported archive type: {extension}");
                 }
 
                 File.Delete(archivePath);
@@ -329,8 +330,7 @@ namespace BoomBoxCartMod.Util
 
                 if (string.IsNullOrWhiteSpace(executablePath))
                 {
-                    throw new Exception(
-                        $"{executableName} not found after extraction.");
+                    throw new Exception($"{executableName} not found after extraction.");
                 }
 
                 if (Directory.Exists(installFolder))
@@ -345,8 +345,7 @@ namespace BoomBoxCartMod.Util
                         SearchOption.AllDirectories)
                     .First();
 
-                Logger.LogDebug(
-                    $"{executableName} installed successfully.");
+                Logger.LogDebug($"{executableName} installed successfully.");
 
                 return executablePath;
             }

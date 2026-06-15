@@ -116,11 +116,11 @@ namespace BoomBoxCartMod
                 if (currentIndex == -1)
                 {
                     DismissQueueLocal();
-                    Logger.LogDebug("Dismiss queue, invalid current song.");
+                    Logger.LogDebug(photonView.ViewID + "Dismiss queue, invalid current song.");
                 }
                 else if (currentIndex + 1 >= data.playbackQueue.Count)
                 {
-                    Logger.LogDebug("Finish playing song");
+                    Logger.LogDebug(photonView.ViewID + "Finish playing song");
                     if (LoopQueue && data.playbackQueue.Count > 0)
                     {
                         SelectSongIndex(0);
@@ -213,7 +213,7 @@ namespace BoomBoxCartMod
                         }).ToArray()
                         )
                 );
-                Logger.LogDebug($"Created table with queue size: {(JsonConvert.DeserializeObject<SharedAudioEntry[]>((string)table[GetPropertyKey("queue")])).Count()}");
+                Logger.LogDebug(photonView.ViewID + $"Created table with queue size: {(JsonConvert.DeserializeObject<SharedAudioEntry[]>((string)table[GetPropertyKey("queue")])).Count()}");
             }
             return table;
         } 
@@ -293,7 +293,7 @@ namespace BoomBoxCartMod
                                 StartTime = entry.startTime
                             };
                         }).ToList();
-                        Logger.LogDebug($"Updated queue to size {data.playbackQueue.Count}.");
+                        Logger.LogDebug(photonView.ViewID + $"Updated queue to size {data.playbackQueue.Count}.");
                     }
                     else
                     {
@@ -316,7 +316,7 @@ namespace BoomBoxCartMod
                         data.pendingPlaybackStart = false;
                         audioPlayer.Stop();
                         UpdateUIStatus("Ready to play music! Enter a Video URL");
-                        Logger.LogDebug($"Invalid currentsong index: {index}.");
+                        Logger.LogDebug(photonView.ViewID + $"Invalid currentsong index: {index}.");
                     }
                 }
                 else if (changedQueue)
@@ -415,7 +415,7 @@ namespace BoomBoxCartMod
         {
             if (data.currentSong?.Url == null)
             {
-                Logger.LogDebug($"ApplySharedPlaybackState: No current song{(data.currentSong == null ? "" : "URL")}!");
+                Logger.LogDebug(photonView.ViewID + $"ApplySharedPlaybackState: No current song{(data.currentSong == null ? "" : "URL")}!");
                 data.pendingPlaybackStart = false;
                 audioPlayer.Stop();
                 UpdateUIStatus("Ready to play music! Enter a Video URL");
@@ -463,12 +463,12 @@ namespace BoomBoxCartMod
             {
                 if (!audioPlayer.IsPlaying())
                 {
-                    Logger.LogDebug($"ApplySharedPlaybackState: Starting playback - timestamp={data.playbackStartTimestamp}");
+                    Logger.LogDebug(photonView.ViewID + $"ApplySharedPlaybackState: Starting playback - timestamp={data.playbackStartTimestamp}");
 
                     audioPlayer.Play();
                     SetPlaybackTime(data.playbackStartTimestamp);
 
-                    Logger.LogDebug($"ApplySharedPlaybackState: After Play(), audioPlayer.GetTime()={audioPlayer.GetTime()}");
+                    Logger.LogDebug(photonView.ViewID + $"ApplySharedPlaybackState: After Play(), audioPlayer.GetTime()={audioPlayer.GetTime()}");
                 }
 
                 UpdateUIStatus($"Now playing: {data.currentSong.Title}");
@@ -613,7 +613,7 @@ namespace BoomBoxCartMod
         {
             float clampedSeconds = Math.Max(0f, totalSeconds);
             data.playbackStartTimestamp = (int)(GetCurrentServerTimeMilliseconds() - Math.Round(clampedSeconds * 1000f));
-            Logger.LogDebug($"SetPlaybackReferenceFromSeconds: Set to {clampedSeconds}s, timestamp={data.playbackStartTimestamp}");
+            Logger.LogDebug(photonView.ViewID + $"SetPlaybackReferenceFromSeconds: Set to {clampedSeconds}s, timestamp={data.playbackStartTimestamp}");
         }
 
         /*
@@ -625,23 +625,23 @@ namespace BoomBoxCartMod
             {
                 if (!audioPlayer.IsPlaying() && data.playbackTime > 0 && audioPlayer.GetTime() <= 0f)
                 {
-                    Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (not playing, time <= 0)");
+                    Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (not playing, time <= 0)");
                     return data.playbackTime;
                 }
 
                 float audioTime = audioPlayer.GetTime();
-                Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning audioPlayer.GetTime()={audioTime}, isPlaying={audioPlayer.IsPlaying()}");
+                Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Returning audioPlayer.GetTime()={audioTime}, isPlaying={audioPlayer.IsPlaying()}");
                 return audioTime;
             }
 
             if (data.playbackTime > 0)
             {
-                Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (no clip)");
+                Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (no clip)");
                 return data.playbackTime;
             }
 
             float calculatedTime = Math.Max(0f, (GetCurrentServerTimeMilliseconds() - data.playbackStartTimestamp) / 1000f);
-            Logger.LogDebug($"GetTrackedPlaybackSeconds: Calculating from timestamp: {calculatedTime}s");
+            Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Calculating from timestamp: {calculatedTime}s");
             return calculatedTime;
         }
 
@@ -659,7 +659,7 @@ namespace BoomBoxCartMod
         public void SetPlaybackTime(long relativeStartTimeMillis)
         {
             float targetTime = Math.Max(0f, (GetCurrentServerTimeMilliseconds() - relativeStartTimeMillis) / 1000f);
-            Logger.LogDebug($"SetPlaybackTime: Setting audioPlayer time to {targetTime}s (from timestamp {relativeStartTimeMillis})");
+            Logger.LogDebug(photonView.ViewID + $"SetPlaybackTime: Setting audioPlayer time to {targetTime}s (from timestamp {relativeStartTimeMillis})");
             audioPlayer.SetTime(targetTime);
         }
 
@@ -697,7 +697,7 @@ namespace BoomBoxCartMod
             {
                 data.currentSong = song;
                 data.playbackTime = 0;
-                Logger.LogDebug($"Set currentsong local {data.currentSong}");
+                Logger.LogDebug(photonView.ViewID + $"Set currentsong local {data.currentSong}");
                 StopLocalPlayback(true);
                 data.pendingPlaybackStart = true;
                 startPlayBackOnDownload = true;
@@ -767,11 +767,11 @@ namespace BoomBoxCartMod
             // When pausing: preserve current playback position
             // When resuming: use stored playback position
             float trackedPlaybackSeconds = GetTrackedPlaybackSeconds();
-            Logger.LogDebug($"SetPlaybackStateLocal: trackedPlaybackSeconds={trackedPlaybackSeconds}, isPlaying={startPlaying}");
+            Logger.LogDebug(photonView.ViewID + $"SetPlaybackStateLocal: trackedPlaybackSeconds={trackedPlaybackSeconds}, isPlaying={startPlaying}");
             
             SetPlaybackReferenceFromSeconds(trackedPlaybackSeconds);
 
-            Logger.LogDebug($"SetPlaybackStateLocal: Final state - isPlaying={startPlaying}, timestamp={data.playbackStartTimestamp}");
+            Logger.LogDebug(photonView.ViewID + $"SetPlaybackStateLocal: Final state - isPlaying={startPlaying}, timestamp={data.playbackStartTimestamp}");
             data.isPlaying = startPlaying;
             data.pendingPlaybackStart = false;
             PublishSharedState(true, false, true);
@@ -841,7 +841,7 @@ namespace BoomBoxCartMod
                     DownloadHelper.downloadsReady[url].Count >= Instance.baseListener.GetAllModUsers().Count &&
                     data.pendingPlaybackStart)
                 {
-                    Logger.LogDebug("Skipping download queue, as all users are ready to play.");
+                    Logger.LogDebug(photonView.ViewID + "Skipping download queue, as all users are ready to play.");
                     FinalizePendingPlaybackStart(startPlayBackOnDownload);
                 }
                 else

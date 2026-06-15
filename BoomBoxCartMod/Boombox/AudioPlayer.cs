@@ -111,7 +111,7 @@ namespace BoomBoxCartMod
                 urlsInUse.Remove(currentUrl);
             }
 
-            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_"))
+            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_" + photonView.ViewID ))
             {
                 Destroy(audioSource.clip);
             }
@@ -139,7 +139,7 @@ namespace BoomBoxCartMod
             float[] samples = new float[source.samples * source.channels];
             source.GetData(samples, 0);
 
-            AudioClip clone = AudioClip.Create(source.name + "_clone_", source.samples, source.channels, source.frequency, false);
+            AudioClip clone = AudioClip.Create(source.name + "_clone_" + photonView.ViewID, source.samples, source.channels, source.frequency, false);
             clone.SetData(samples, 0);
             return clone;
         }
@@ -224,7 +224,7 @@ namespace BoomBoxCartMod
             audioSource.time = 0f;
 
             // Destroy cloned clip to avoid memory leaks
-            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_"))
+            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_" + photonView.ViewID))
             {
                 Destroy(audioSource.clip);
             }
@@ -245,7 +245,7 @@ namespace BoomBoxCartMod
             Destroy(lowPassFilter);
 
             // Destroy cloned clip if present
-            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_"))
+            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_" + photonView.ViewID))
             {
                 Destroy(audioSource.clip);
             }
