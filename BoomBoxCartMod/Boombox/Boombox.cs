@@ -110,21 +110,17 @@ namespace BoomBoxCartMod
                 monsterAttractTimer = 0f;
             }
 
-            AudioSource audioSource = audioPlayer.audioSource;
-            bool songReachedEnd = audioSource.clip != null
-                && audioSource.time >= Math.Max(0f, audioSource.clip.length - 0.05f);
-
-            if (syncFinished && data.isPlaying && !audioSource.isPlaying && songReachedEnd && PhotonNetwork.IsMasterClient) // Song finished playing
+            if (syncFinished && PhotonNetwork.IsMasterClient && data.isPlaying&& !audioPlayer.IsPlaying() && audioPlayer.SongReachedEnd()) // Song finished playing
             {
                 int currentIndex = GetCurrentSongIndex();
                 if (currentIndex == -1)
                 {
                     DismissQueueLocal();
-                    Logger.LogDebug(photonView.ViewID + "Dismiss queue, invalid current song.");
+                    Logger.LogDebug("Dismiss queue, invalid current song.");
                 }
                 else if (currentIndex + 1 >= data.playbackQueue.Count)
                 {
-                    Logger.LogDebug(photonView.ViewID + "Finish playing song");
+                    Logger.LogDebug("Finish playing song");
                     if (LoopQueue && data.playbackQueue.Count > 0)
                     {
                         SelectSongIndex(0);
@@ -217,7 +213,7 @@ namespace BoomBoxCartMod
                         }).ToArray()
                         )
                 );
-                Logger.LogDebug(photonView.ViewID + $"Created table with queue size: {(JsonConvert.DeserializeObject<SharedAudioEntry[]>((string)table[GetPropertyKey("queue")])).Count()}");
+                Logger.LogDebug($"Created table with queue size: {(JsonConvert.DeserializeObject<SharedAudioEntry[]>((string)table[GetPropertyKey("queue")])).Count()}");
             }
             return table;
         } 
@@ -297,7 +293,7 @@ namespace BoomBoxCartMod
                                 StartTime = entry.startTime
                             };
                         }).ToList();
-                        Logger.LogDebug(photonView.ViewID + $"Updated queue to size {data.playbackQueue.Count}.");
+                        Logger.LogDebug($"Updated queue to size {data.playbackQueue.Count}.");
                     }
                     else
                     {
@@ -320,7 +316,7 @@ namespace BoomBoxCartMod
                         data.pendingPlaybackStart = false;
                         audioPlayer.Stop();
                         UpdateUIStatus("Ready to play music! Enter a Video URL");
-                        Logger.LogDebug(photonView.ViewID + $"Invalid currentsong index: {index}.");
+                        Logger.LogDebug($"Invalid currentsong index: {index}.");
                     }
                 }
                 else if (changedQueue)
@@ -419,16 +415,15 @@ namespace BoomBoxCartMod
         {
             if (data.currentSong?.Url == null)
             {
-                Logger.LogDebug(photonView.ViewID + $"ApplySharedPlaybackState: No current song{(data.currentSong == null ? "" : "URL")}!");
+                Logger.LogDebug($"ApplySharedPlaybackState: No current song{(data.currentSong == null ? "" : "URL")}!");
                 data.pendingPlaybackStart = false;
                 audioPlayer.Stop();
                 UpdateUIStatus("Ready to play music! Enter a Video URL");
                 return;
             }
 
-            AudioClip clip = data.currentSong?.GetAudioClip();
 
-            if (clip == null)
+            if (data.currentSong?.ClipLoaded() != true)
             {
                 audioPlayer.Stop();
                 startPlayBackOnDownload = data.pendingPlaybackStart;
@@ -445,10 +440,10 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (audioPlayer.GetClip() != clip)
+            if (data.currentSong.Url != audioPlayer.currentUrl)
             {
                 audioPlayer.Stop();
-                audioPlayer.audioSource.clip = clip;
+                audioPlayer.SetClip(data.currentSong.Url);
                 audioPlayer.SetQuality(AudioPlayer.GetQuality());
                 audioPlayer.UpdateAudioRangeBasedOnVolume();
             }
@@ -468,12 +463,12 @@ namespace BoomBoxCartMod
             {
                 if (!audioPlayer.IsPlaying())
                 {
-                    Logger.LogDebug(photonView.ViewID + $"ApplySharedPlaybackState: Starting playback - timestamp={data.playbackStartTimestamp}");
+                    Logger.LogDebug($"ApplySharedPlaybackState: Starting playback - timestamp={data.playbackStartTimestamp}");
 
                     audioPlayer.Play();
                     SetPlaybackTime(data.playbackStartTimestamp);
 
-                    Logger.LogDebug(photonView.ViewID + $"ApplySharedPlaybackState: After Play(), audioPlayer.GetTime()={audioPlayer.GetTime()}");
+                    Logger.LogDebug($"ApplySharedPlaybackState: After Play(), audioPlayer.GetTime()={audioPlayer.GetTime()}");
                 }
 
                 UpdateUIStatus($"Now playing: {data.currentSong.Title}");
@@ -618,7 +613,7 @@ namespace BoomBoxCartMod
         {
             float clampedSeconds = Math.Max(0f, totalSeconds);
             data.playbackStartTimestamp = (int)(GetCurrentServerTimeMilliseconds() - Math.Round(clampedSeconds * 1000f));
-            Logger.LogDebug(photonView.ViewID + $"SetPlaybackReferenceFromSeconds: Set to {clampedSeconds}s, timestamp={data.playbackStartTimestamp}");
+            Logger.LogDebug($"SetPlaybackReferenceFromSeconds: Set to {clampedSeconds}s, timestamp={data.playbackStartTimestamp}");
         }
 
         /*
@@ -630,23 +625,23 @@ namespace BoomBoxCartMod
             {
                 if (!audioPlayer.IsPlaying() && data.playbackTime > 0 && audioPlayer.GetTime() <= 0f)
                 {
-                    Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (not playing, time <= 0)");
+                    Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (not playing, time <= 0)");
                     return data.playbackTime;
                 }
 
                 float audioTime = audioPlayer.GetTime();
-                Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Returning audioPlayer.GetTime()={audioTime}, isPlaying={audioPlayer.IsPlaying()}");
+                Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning audioPlayer.GetTime()={audioTime}, isPlaying={audioPlayer.IsPlaying()}");
                 return audioTime;
             }
 
             if (data.playbackTime > 0)
             {
-                Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (no clip)");
+                Logger.LogDebug($"GetTrackedPlaybackSeconds: Returning cached playbackTime={data.playbackTime} (no clip)");
                 return data.playbackTime;
             }
 
             float calculatedTime = Math.Max(0f, (GetCurrentServerTimeMilliseconds() - data.playbackStartTimestamp) / 1000f);
-            Logger.LogDebug(photonView.ViewID + $"GetTrackedPlaybackSeconds: Calculating from timestamp: {calculatedTime}s");
+            Logger.LogDebug($"GetTrackedPlaybackSeconds: Calculating from timestamp: {calculatedTime}s");
             return calculatedTime;
         }
 
@@ -664,16 +659,7 @@ namespace BoomBoxCartMod
         public void SetPlaybackTime(long relativeStartTimeMillis)
         {
             float targetTime = Math.Max(0f, (GetCurrentServerTimeMilliseconds() - relativeStartTimeMillis) / 1000f);
-            
-            // Clamp target time to clip duration to prevent audio stopping when seeking beyond song length
-            // This can happen when other carts publish timestamps with clock skew
-            if (audioPlayer?.GetClip() != null)
-            {
-                float clipLength = audioPlayer.GetClip().length;
-                targetTime = Math.Min(targetTime, Math.Max(0f, clipLength - 0.05f));
-            }
-            
-            Logger.LogDebug(photonView.ViewID + $"SetPlaybackTime: Setting audioPlayer time to {targetTime}s (from timestamp {relativeStartTimeMillis})");
+            Logger.LogDebug($"SetPlaybackTime: Setting audioPlayer time to {targetTime}s (from timestamp {relativeStartTimeMillis})");
             audioPlayer.SetTime(targetTime);
         }
 
@@ -711,7 +697,7 @@ namespace BoomBoxCartMod
             {
                 data.currentSong = song;
                 data.playbackTime = 0;
-                Logger.LogDebug(photonView.ViewID + $"Set currentsong local {data.currentSong}");
+                Logger.LogDebug($"Set currentsong local {data.currentSong}");
                 StopLocalPlayback(true);
                 data.pendingPlaybackStart = true;
                 startPlayBackOnDownload = true;
@@ -769,7 +755,7 @@ namespace BoomBoxCartMod
                 return;
             }
 
-            if (data.currentSong.GetAudioClip() == null)
+            if (data.currentSong.ClipLoaded() != true)
             {
                 startPlayBackOnDownload = startPlaying;
                 data.isPlaying = false;
@@ -781,11 +767,11 @@ namespace BoomBoxCartMod
             // When pausing: preserve current playback position
             // When resuming: use stored playback position
             float trackedPlaybackSeconds = GetTrackedPlaybackSeconds();
-            Logger.LogDebug(photonView.ViewID + $"SetPlaybackStateLocal: trackedPlaybackSeconds={trackedPlaybackSeconds}, isPlaying={startPlaying}");
+            Logger.LogDebug($"SetPlaybackStateLocal: trackedPlaybackSeconds={trackedPlaybackSeconds}, isPlaying={startPlaying}");
             
             SetPlaybackReferenceFromSeconds(trackedPlaybackSeconds);
 
-            Logger.LogDebug(photonView.ViewID + $"SetPlaybackStateLocal: Final state - isPlaying={startPlaying}, timestamp={data.playbackStartTimestamp}");
+            Logger.LogDebug($"SetPlaybackStateLocal: Final state - isPlaying={startPlaying}, timestamp={data.playbackStartTimestamp}");
             data.isPlaying = startPlaying;
             data.pendingPlaybackStart = false;
             PublishSharedState(true, false, true);
@@ -793,7 +779,7 @@ namespace BoomBoxCartMod
 
         public void JumpPlaybackBySeconds(float seconds)
         {
-            if (data.currentSong.GetAudioClip() == null)
+            if (data.currentSong.ClipLoaded() != true)
             {
                 return;
             }
@@ -855,7 +841,7 @@ namespace BoomBoxCartMod
                     DownloadHelper.downloadsReady[url].Count >= Instance.baseListener.GetAllModUsers().Count &&
                     data.pendingPlaybackStart)
                 {
-                    Logger.LogDebug(photonView.ViewID + "Skipping download queue, as all users are ready to play.");
+                    Logger.LogDebug("Skipping download queue, as all users are ready to play.");
                     FinalizePendingPlaybackStart(startPlayBackOnDownload);
                 }
                 else
@@ -1227,7 +1213,7 @@ namespace BoomBoxCartMod
 
         public void HandleDownloadedCurrentSong()
         {
-            if (data.currentSong?.GetAudioClip() == null)
+            if (data.currentSong?.ClipLoaded() != true)
             {
                 return;
             }
@@ -1434,9 +1420,9 @@ namespace BoomBoxCartMod
                 return re;
             }
 
-            public AudioClip GetAudioClip()
+            public bool ClipLoaded()
             {
-                return DownloadHelper.downloadedClips.ContainsKey(Url) ? DownloadHelper.downloadedClips[Url] : null;
+                return DownloadHelper.downloadedClips.ContainsKey(Url) && DownloadHelper.downloadedClips[Url] != null;
             }
         }
     }

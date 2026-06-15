@@ -237,7 +237,7 @@ namespace BoomBoxCartMod
                 {
                     statusMessage = YoutubeDL.ResourceUpdateStatus;
                 }
-                else if (boombox.downloadHelper.IsProcessingQueue() && boombox.data.currentSong != null && boombox.data.currentSong.GetAudioClip() == null)
+                else if (boombox.downloadHelper.IsProcessingQueue() && boombox.data.currentSong != null && boombox.data.currentSong.ClipLoaded() != true)
                 {
                     statusMessage = $"Downloading audio from {boombox.downloadHelper.GetCurrentDownloadUrl()}...";
                 }
@@ -658,7 +658,7 @@ namespace BoomBoxCartMod
 
                 // Download status information for current song
                 if (boombox != null && boombox.downloadHelper.IsProcessingQueue()
-                    && boombox.data.currentSong?.GetAudioClip() == null && boombox.downloadHelper.GetCurrentDownloadUrl() != null
+                    && boombox.data.currentSong?.ClipLoaded() != true && boombox.downloadHelper.GetCurrentDownloadUrl() != null
                 )
                 {
                     GUILayout.Space(10);

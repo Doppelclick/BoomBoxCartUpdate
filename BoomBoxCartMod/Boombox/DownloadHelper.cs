@@ -304,11 +304,11 @@ namespace BoomBoxCartMod
                 {
                     boomboxParent.UpdateUIStatus($"Loading: {title}");
                 }
-                else if (boomboxParent.data.currentSong.GetAudioClip() != null && boomboxParent.data.isPlaying)
+                else if (boomboxParent.data.currentSong.ClipLoaded() && boomboxParent.data.isPlaying)
                 {
                     boomboxParent.UpdateUIStatus($"Now playing: {title}");
                 }
-                else if (boomboxParent.data.currentSong.GetAudioClip() != null)
+                else if (boomboxParent.data.currentSong.ClipLoaded())
                 {
                     boomboxParent.UpdateUIStatus($"Ready to play: {title}");
                 }

@@ -3,6 +3,7 @@ using Photon.Pun;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Policy;
 using System.Text;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -14,6 +15,7 @@ namespace BoomBoxCartMod
         private static BoomBoxCartMod Instance = BoomBoxCartMod.instance;
         private static ManualLogSource Logger => Instance.logger;
 
+        private static HashSet<string> urlsInUse = new HashSet<string>(); // Used to detect shared audio files
 
         public float minDistance = 3f;
         public float maxDistanceBase = 15f;
@@ -24,6 +26,7 @@ namespace BoomBoxCartMod
         private AudioLowPassFilter lowPassFilter;
         public AudioSource audioSource;
 
+        public string currentUrl;
 
         private void Awake()
         {
@@ -96,13 +99,49 @@ namespace BoomBoxCartMod
             //Logger.LogInfo($"Updated audio range based on volume {volume}: maxDistance={newMaxDistance}");
         }
 
-        public void SetClip(AudioClip clip)
+        public void SetClip(string url)
         {
-            audioSource.Stop();
-            audioSource.clip = clip;
-            audioSource.time = 0f;
-            SetQuality(qualityLevel);
-            UpdateAudioRangeBasedOnVolume();
+            if (url == null || (url == currentUrl && audioSource.clip != null))
+            {
+                return;
+            }
+
+            if (currentUrl != null)
+            {
+                urlsInUse.Remove(currentUrl);
+            }
+
+            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_"))
+            {
+                Destroy(audioSource.clip);
+            }
+
+            DownloadHelper.downloadedClips.TryGetValue(url, out var clip);
+
+            if (clip != null)
+            {
+                // If this URL is already in use by another AudioSource, clone it to avoid accessing the same audio file from multiple sources
+                if (urlsInUse.Contains(url))
+                {
+                    clip = CloneAudioClip(clip);
+                    Logger.LogDebug($"Audio clip for URL {url} is already in use, cloning...");
+                }
+
+                audioSource.clip = clip;
+                currentUrl = url;
+                urlsInUse.Add(url);
+            }
+        }
+
+        private AudioClip CloneAudioClip(AudioClip source)
+        {
+            // Manually copy audio samples, not great for performance but shouldn't happen often
+            float[] samples = new float[source.samples * source.channels];
+            source.GetData(samples, 0);
+
+            AudioClip clone = AudioClip.Create(source.name + "_clone_", source.samples, source.channels, source.frequency, false);
+            clone.SetData(samples, 0);
+            return clone;
         }
 
 
@@ -146,12 +185,24 @@ namespace BoomBoxCartMod
         }
         public void SetTime(float time)
         {
+            // Prevent setting time beyond clip length which can stop audio unexpectedly
+            if (audioSource.clip != null && time > audioSource.clip.length)
+            {
+                time = Mathf.Max(0f, audioSource.clip.length - 0.05f);
+                Logger.LogDebug($"SetTime: Clamped time from {audioSource.time} to {time} (clip length: {audioSource.clip.length})");
+            }
             audioSource.time = time;
         }
 
         public bool IsPlaying()
         {
             return audioSource.isPlaying;
+        }
+
+        public bool SongReachedEnd()
+        {
+            return audioSource.clip != null
+                && audioSource.time >= Math.Max(0f, audioSource.clip.length - 0.05f);
         }
 
         public void Play()
@@ -166,15 +217,44 @@ namespace BoomBoxCartMod
 
         public void Stop()
         {
-            audioSource.Stop();
+            if (audioSource.isPlaying)
+            {
+                audioSource.Stop();
+            }
+            audioSource.time = 0f;
+
+            // Destroy cloned clip to avoid memory leaks
+            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_"))
+            {
+                Destroy(audioSource.clip);
+            }
+
             audioSource.clip = null;
+
+            // Remove URL from tracking
+            if (currentUrl != null)
+            {
+                urlsInUse.Remove(currentUrl);
+                currentUrl = null;
+            }
         }
 
 
         private void OnDestroy()
         {
             Destroy(lowPassFilter);
+
+            // Destroy cloned clip if present
+            if (audioSource.clip != null && audioSource.clip.name.Contains("_clone_"))
+            {
+                Destroy(audioSource.clip);
+            }
+
             Destroy(audioSource);
+            if (currentUrl != null)
+            {
+                urlsInUse.Remove(currentUrl);
+            }
         }
     }
 }

@@ -1,4 +1,7 @@
 # Changelog
+## 1.3.5
+ - Fix playback with multiple carts
+ - Fix playing the same url across different carts
 ## 1.3.4
  - Add cookie passthrough
  - Add javascript dependency
